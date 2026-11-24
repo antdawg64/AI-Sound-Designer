@@ -22,8 +22,10 @@ _Last updated: 2026-11-24_
 - [ ] Claude API key from the Anthropic Console, with a little credit on it.
 - [ ] 5 test videos, 30 to 60 seconds each: some with talking, some without, some with
       fast cuts.
-- [ ] Add the keys as environment variables in the project's cloud environment, using
-      the names in `.env.example`.
+- [ ] Add MODAL_TOKEN_ID, MODAL_TOKEN_SECRET and HF_TOKEN as environment variables in
+      the project's cloud environment.
+- [ ] Save the Claude API key as a Modal secret named `anthropic` with the key
+      `ANTHROPIC_API_KEY` (the project settings won't store Anthropic keys).
 - Later (Phase 1): accept the model licence pages on Hugging Face when asked.
 - Later (Phase 5): Stripe account.
 

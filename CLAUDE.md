@@ -60,5 +60,9 @@ Only start a phase when Anthony asks for it.
 - Test videos: `test_videos/` (git-ignored; 5 videos, 30 to 60 s, some with talking,
   some without, some with fast cuts).
 - Secrets the code reads (names only, never values): `MODAL_TOKEN_ID`,
-  `MODAL_TOKEN_SECRET`, `HF_TOKEN`, `ANTHROPIC_API_KEY`. See `.env.example`.
+  `MODAL_TOKEN_SECRET`, `HF_TOKEN` come from the cloud environment variables.
+  `ANTHROPIC_API_KEY` is NOT in the cloud environment (the project settings refuse
+  Anthropic secrets): it lives in a Modal secret named `anthropic`, so every Claude API
+  call runs inside a Modal function with `secrets=[modal.Secret.from_name("anthropic")]`.
+  See `.env.example`.
 - Setup: `bash scripts/setup.sh` installs the Python packages.
