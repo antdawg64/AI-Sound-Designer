@@ -60,9 +60,14 @@ Only start a phase when Anthony asks for it.
 - Test videos: `test_videos/` (git-ignored; 5 videos, 30 to 60 s, some with talking,
   some without, some with fast cuts).
 - Secrets the code reads (names only, never values): `MODAL_TOKEN_ID`,
-  `MODAL_TOKEN_SECRET`, `HF_TOKEN` come from the cloud environment variables.
+  `MODAL_TOKEN_SECRET`, `HF_TOKEN` come from the cloud environment variables. They must
+  be plain environment variables in the `ai-sound-designer` cloud environment, NOT
+  "Network secrets": a network secret on a Modal host breaks Modal (see PROGRESS.md).
   `ANTHROPIC_API_KEY` is NOT in the cloud environment (the project settings refuse
   Anthropic secrets): it lives in a Modal secret named `anthropic`, so every Claude API
   call runs inside a Modal function with `secrets=[modal.Secret.from_name("anthropic")]`.
   See `.env.example`.
 - Setup: `bash scripts/setup.sh` installs the Python packages.
+- Run: `python make_sound.py video.mp4` (or `--all` for everything in `test_videos/`).
+  Results go to `outputs/<video name>/`. `--dry-run` uses test tones and no Modal.
+  `--deploy` installs `modal_app.py` on Modal. Settings live in `soundlib/config.py`.

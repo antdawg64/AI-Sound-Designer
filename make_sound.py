@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+"""Add synced sound effects and original music to a video.
+
+    python make_sound.py path/to/video.mp4
+
+Writes final.mp4 (the video with its new sound), music.wav and sfx.wav into
+outputs/<video name>/, then checks the result automatically.
+
+Other ways to run it:
+    python make_sound.py --all          every video in test_videos/
+    python make_sound.py --deploy       (re)install the cloud side on Modal
+    python make_sound.py video.mp4 --dry-run
+        Test tones instead of AI sound. No Modal, no cost. Only for testing the
+        plumbing: the result is NOT a real sound design.
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import shutil
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+import numpy as np
+
+from soundlib import config as C
+from soundlib import media, mixing, planning, proxyfix
+from soundlib.checks import check_outputs
+
+ROOT = Path(__file__).parent
+VIDEO_TYPES = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
+
+
+def say(text: str) -> None:
+    print(text, flush=True)
+
+
+# --- Cloud backend (Modal) -----------------------------------------------------
+
+class Cloud:
+    """Talks to the deployed Modal app."""
+
+    def __init__(self) -> None:
+        proxyfix.apply()
+        import modal
+
+        self.modal = modal
+        self.gpu_calls: list[dict] = []
+        self.claude: dict = {}
+
+    def deploy(self) -> None:
+        import modal_app
+
+        say("Installing the cloud side on Modal (the first time builds the model images, "
+            "which can take 10 to 20 minutes)...")
+        with self.modal.enable_output():
+            modal_app.app.deploy()
+
+    def _lookup(self):
+        from modal_app import APP_NAME
+
+        try:
+            plan_fn = self.modal.Function.from_name(APP_NAME, "plan_sound")
+            plan_fn.hydrate()
+        except self.modal.exception.NotFoundError:
+            self.deploy()
+            plan_fn = self.modal.Function.from_name(APP_NAME, "plan_sound")
+        foley = self.modal.Cls.from_name(APP_NAME, "Foley")()
+        music = self.modal.Cls.from_name(APP_NAME, "Music")()
+        return plan_fn, foley, music
+
+    def connect(self) -> None:
+        self.plan_fn, self.foley, self.music = self._lookup()
+
+    def plan(self, frames: list[dict], shots: list[dict], duration: float, speech: list[dict]) -> dict:
+        payload = [{"shot": f["shot"], "time": f["time"], "jpeg": Path(f["path"]).read_bytes()}
+                   for f in frames]
+        result = self.plan_fn.remote(payload, shots, duration, speech)
+        self.claude = result["usage"]
+        return result["plan"]
+
+    def _collect(self, stream, what: str) -> tuple[np.ndarray, int]:
+        import soundfile as sf
+
+        meta, chunks = None, []
+        for item in stream:
+            if meta is None:
+                meta = item
+            else:
+                chunks.append(item)
+        if meta is None:
+            raise RuntimeError(f"{what}: the model returned nothing")
+        self.gpu_calls.append({"what": what, "gpu": meta["gpu"],
+                               "gpu_seconds": round(meta["gpu_seconds"], 2),
+                               "load_seconds": round(meta["load_seconds"], 2)})
+        data, sr = sf.read(io.BytesIO(b"".join(chunks)), dtype="float32", always_2d=True)
+        return data, sr
+
+    def effects(self, clip: Path, prompt: str, seg: dict) -> tuple[np.ndarray, int]:
+        return self._collect(
+            self.foley.generate.remote_gen(clip.read_bytes(), prompt, seed=C.SEED + seg["index"]),
+            f"effects segment {seg['index']}")
+
+    def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
+        return self._collect(self.music.generate.remote_gen(caption, bpm, seconds, seed=C.SEED),
+                             "music")
+
+
+# --- Test-tone backend (no AI, no cost) ------------------------------------------
+
+class TestTones:
+    """Stands in for the AI models so the rest of the pipeline can be tested for free."""
+
+    gpu_calls: list[dict] = []
+    claude: dict = {}
+
+    def connect(self) -> None:
+        pass
+
+    def plan(self, frames, shots, duration, speech) -> dict:
+        return {
+            "summary": "TEST PLAN (no AI was used)",
+            "shots": [{"shot": s["index"], "effects": [
+                {"start": s["start"], "end": s["end"], "description": "test noise",
+                 "loudness": ("quiet", "medium", "loud")[s["index"] % 3]}]} for s in shots],
+            "music": {"mood": "test", "genre": "test tone", "tempo_bpm": 110,
+                      "instruments": ["sine wave"], "cut_times": []},
+        }
+
+    def effects(self, clip: Path, prompt: str, seg: dict) -> tuple[np.ndarray, int]:
+        sr = C.SAMPLE_RATE
+        n = int((seg["clip_end"] - seg["clip_start"]) * sr)
+        rng = np.random.default_rng(seg["index"])
+        noise = rng.standard_normal(n).astype(np.float32)
+        noise = np.convolve(noise, np.ones(24, dtype=np.float32) / 24, mode="same")
+        swell = 0.6 + 0.4 * np.sin(np.linspace(0, 6 * np.pi, n, dtype=np.float32))
+        return (0.4 * noise * swell)[:, None], sr
+
+    def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
+        sr = C.SAMPLE_RATE
+        t = np.arange(int(seconds * sr), dtype=np.float32) / sr
+        chord = sum(np.sin(2 * np.pi * f * t) for f in (220.0, 277.18, 329.63)) / 3
+        beat = 0.5 + 0.5 * (np.modf(t * bpm / 60.0)[0] < 0.25)
+        return (0.3 * chord * beat).astype(np.float32)[:, None], sr
+
+
+# --- The pipeline -----------------------------------------------------------------
+
+def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False) -> dict:
+    started = time.time()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="make_sound_"))
+    try:
+        say(f"\n=== {video.name} ===")
+        info = media.probe(video)
+        duration = info["duration"]
+        say(f"1/6 Reading the video: {duration:.1f}s, {info['width']}x{info['height']}, "
+            f"{'has' if info['has_audio'] else 'no'} existing audio")
+
+        shots = media.detect_shots(video, duration)
+        speech, voice_wav = [], None
+        if info["has_audio"]:
+            original = media.extract_audio(video, work / "original.wav", duration)
+            speech = media.detect_speech(original)
+            if speech:
+                data, sr = media.read_audio(original)
+                voice = mixing.set_loudness(media.gate_to_speech(data, speech, sr), C.VOICE_LUFS)
+                voice_wav = work / "voice.wav"
+                media.write_audio(voice_wav, voice)
+        say(f"    {len(shots)} shot(s); speech in {len(speech)} place(s)")
+
+        say("2/6 Planning the sound with Claude")
+        backend.connect()
+        frames = media.extract_keyframes(video, shots, work / "frames")
+        plan = planning.clean_plan(backend.plan(frames, shots, duration, speech), shots, duration)
+        say(f"    {plan['summary']}")
+
+        say("3/6 Generating sound effects")
+        segments = media.plan_segments(shots, duration)
+        for seg in segments:
+            seg["prompt"], seg["gain_db"] = planning.segment_prompt(plan, seg)
+            clip = media.cut_clip(video, seg, work / f"clip{seg['index']:03d}.mp4")
+            say(f"    {seg['start']:.1f}-{seg['end']:.1f}s: {seg['prompt']}")
+            audio, sr = backend.effects(clip, seg["prompt"], seg)
+            seg["audio"] = media.to_stereo_48k(audio, sr)
+        sfx = mixing.stitch_effects(segments, duration)
+        sfx = mixing.set_loudness(sfx, C.SFX_LUFS if speech else C.SFX_LUFS_NO_VOICE)
+
+        say("4/6 Composing the music")
+        music_plan = plan["music"]
+        bpm, miss = planning.pick_tempo(music_plan["tempo_bpm"], music_plan["cut_times"])
+        caption = planning.music_caption(music_plan)
+        say(f"    {caption} at {bpm} BPM")
+        raw, sr = backend.compose(caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1))
+        music = mixing.shape_music(raw, sr, duration)
+        music = mixing.set_loudness(music, C.MUSIC_LUFS if speech else C.MUSIC_LUFS_NO_VOICE)
+
+        say("5/6 Mixing")
+        mixing.save_stem(out_dir / "sfx.wav", sfx)
+        mixing.save_stem(out_dir / "music.wav", music)
+        mixing.mix(video, out_dir / "sfx.wav", out_dir / "music.wav", voice_wav,
+                   out_dir / "final.mp4", work, duration)
+
+        say("6/6 Checking the result")
+        result = check_outputs(video, out_dir)
+        for check in result["checks"]:
+            say(f"    {'PASS' if check['passed'] else 'FAIL'}  {check['name']}: {check['detail']}")
+
+        gpu_seconds = sum(c["gpu_seconds"] + c["load_seconds"] for c in backend.gpu_calls)
+        gpu_dollars = sum((c["gpu_seconds"] + c["load_seconds"]) * C.GPU_DOLLARS_PER_SECOND[c["gpu"]]
+                          for c in backend.gpu_calls)
+        report = {
+            "video": str(video), "output_dir": str(out_dir), "duration": duration,
+            "test_tones_only": isinstance(backend, TestTones),
+            "passed": result["passed"], "checks": result["checks"],
+            "shots": shots, "speech": speech,
+            "segments": [{k: v for k, v in s.items() if k != "audio"} for s in segments],
+            "music": {"caption": caption, "bpm": bpm, "claude_bpm": music_plan["tempo_bpm"],
+                      "average_beat_to_cut_seconds": miss},
+            "cost": {"gpu_seconds": round(gpu_seconds, 1), "gpu_dollars": round(gpu_dollars, 4),
+                     "claude_dollars": backend.claude.get("dollars", 0.0),
+                     "total_dollars": round(gpu_dollars + backend.claude.get("dollars", 0.0), 4),
+                     "gpu_calls": list(backend.gpu_calls), "claude": dict(backend.claude)},
+            "wall_seconds": round(time.time() - started, 1),
+        }
+        (out_dir / "plan.json").write_text(json.dumps(plan, indent=2))
+        (out_dir / "report.json").write_text(json.dumps(report, indent=2))
+        say(f"Done in {report['wall_seconds']:.0f}s. GPU: {report['cost']['gpu_seconds']:.0f}s, "
+            f"cost ${report['cost']['total_dollars']:.3f}. Files are in {out_dir}/")
+        return report
+    finally:
+        backend.gpu_calls = []
+        if keep_work:
+            say(f"Working files kept in {work}")
+        else:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Add AI sound effects and music to a video.")
+    parser.add_argument("video", nargs="?", help="path to a video file")
+    parser.add_argument("--all", action="store_true", help="run every video in test_videos/")
+    parser.add_argument("--out", help="output folder (default: outputs/<video name>/)")
+    parser.add_argument("--deploy", action="store_true", help="install the cloud side on Modal")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="test tones instead of AI sound (free, for testing only)")
+    parser.add_argument("--keep-work", action="store_true", help="keep temporary files")
+    args = parser.parse_args()
+
+    backend = TestTones() if args.dry_run else Cloud()
+    if args.deploy:
+        Cloud().deploy()
+        if not args.video and not args.all:
+            return 0
+    if args.all:
+        videos = sorted(p for p in (ROOT / "test_videos").iterdir() if p.suffix.lower() in VIDEO_TYPES)
+        if not videos:
+            say("No videos found in test_videos/.")
+            return 1
+    elif args.video:
+        videos = [Path(args.video)]
+        if not videos[0].exists():
+            say(f"Video not found: {videos[0]}")
+            return 1
+    else:
+        parser.print_help()
+        return 1
+
+    reports, failed = [], []
+    for video in videos:
+        out_dir = Path(args.out) if args.out and len(videos) == 1 else ROOT / "outputs" / video.stem
+        try:
+            reports.append(make_sound(video, out_dir, backend, keep_work=args.keep_work))
+            if not reports[-1]["passed"]:
+                failed.append(video.name)
+        except Exception as exc:  # keep going so one bad video doesn't hide the others
+            say(f"ERROR on {video.name}: {exc}")
+            failed.append(video.name)
+    if len(videos) > 1:
+        say("\n=== Summary ===")
+        for r in reports:
+            say(f"{'PASS' if r['passed'] else 'FAIL'}  {Path(r['video']).name}: "
+                f"{r['cost']['gpu_seconds']:.0f} GPU s, ${r['cost']['total_dollars']:.3f}  "
+                f"-> {r['output_dir']}/final.mp4")
+    if failed:
+        say(f"\nProblems with: {', '.join(failed)}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
