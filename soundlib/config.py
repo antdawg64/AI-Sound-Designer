@@ -11,6 +11,7 @@ FRAMES_PER_SHOT = 3
 MAX_FRAMES = 24
 FRAME_LONG_SIDE = 768
 PLAN_MODEL = "claude-opus-5-5"
+CLAUDE_SECRET_NAME = "anthropic-secret"   # the Modal secret holding ANTHROPIC_API_KEY
 
 # --- Effects (HunyuanVideo-Foley) -----------------------------------------
 FOLEY_MAX_SEGMENT_SECONDS = 10.0   # long shots are cut into pieces this long

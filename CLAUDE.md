@@ -64,8 +64,8 @@ Only start a phase when Anthony asks for it.
   be plain environment variables in the `ai-sound-designer` cloud environment, NOT
   "Network secrets": a network secret on a Modal host breaks Modal (see PROGRESS.md).
   `ANTHROPIC_API_KEY` is NOT in the cloud environment (the project settings refuse
-  Anthropic secrets): it lives in a Modal secret named `anthropic`, so every Claude API
-  call runs inside a Modal function with `secrets=[modal.Secret.from_name("anthropic")]`.
+  Anthropic secrets): it lives in a Modal secret named `anthropic-secret`, so every Claude API
+  call runs inside a Modal function with `secrets=[modal.Secret.from_name("anthropic-secret")]`.
   See `.env.example`.
 - Setup: `bash scripts/setup.sh` installs the Python packages.
 - Run: `python make_sound.py video.mp4` (or `--all` for everything in `test_videos/`).

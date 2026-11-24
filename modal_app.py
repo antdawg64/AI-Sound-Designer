@@ -1,7 +1,7 @@
 """The cloud side of AI Sound Designer, running on Modal.
 
 Three pieces:
-  plan_sound  - asks Claude for the sound plan (CPU; reads the `anthropic` Modal secret)
+  plan_sound  - asks Claude for the sound plan (CPU; reads the Claude key from a Modal secret)
   Foley       - HunyuanVideo-Foley: synced sound effects from video + text (GPU)
   Music       - ACE-Step 1.5: instrumental music from a text brief (GPU)
 
@@ -46,7 +46,7 @@ plan_image = (
 )
 
 foley_image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.11")
     .apt_install("git", "ffmpeg", "libsndfile1")
     .pip_install(
         "torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1",
@@ -118,7 +118,7 @@ def _to_numpy(tensor):
 
 # --- Sound planning ------------------------------------------------------------
 
-@app.function(image=plan_image, secrets=[modal.Secret.from_name("anthropic")], timeout=600)
+@app.function(image=plan_image, secrets=[modal.Secret.from_name(C.CLAUDE_SECRET_NAME)], timeout=600)
 def plan_sound(frames: list[dict], shots: list[dict], duration: float, speech: list[dict]) -> dict:
     """Ask Claude for the sound plan. `frames` items: {shot, time, jpeg}."""
     from soundlib.planning import ask_claude
