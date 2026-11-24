@@ -33,8 +33,10 @@ WEIGHTS = "/weights"
 CHUNK = 1_000_000  # audio is streamed back in pieces of this many bytes
 
 FOLEY_REPO = "https://github.com/Tencent-Hunyuan/HunyuanVideo-Foley"
+FOLEY_COMMIT = "df7b005b5023df2a9b73e1d66dd51d452799884e"  # pinned 2026-11-24
 FOLEY_DIR = "/opt/HunyuanVideo-Foley"
 ACE_REPO = "https://github.com/ace-step/ACE-Step-1.5"
+ACE_COMMIT = "ca1e85fe9430179831e6bc6be790c332190a3866"  # pinned 2026-11-24
 ACE_DIR = "/opt/ACE-Step-1.5"
 
 # --- Images ------------------------------------------------------------------
@@ -60,8 +62,7 @@ foley_image = (
         "setuptools", "pandas", "pyarrow", "soundfile", "huggingface_hub",
     )
     .run_commands(
-        f"git clone --depth 1 {FOLEY_REPO} {FOLEY_DIR}",
-        f"cd {FOLEY_DIR} && git rev-parse HEAD",
+        f"git clone {FOLEY_REPO} {FOLEY_DIR} && cd {FOLEY_DIR} && git checkout {FOLEY_COMMIT}",
     )
     .env({"HF_HOME": f"{WEIGHTS}/hf", "PYTHONPATH": FOLEY_DIR})
     .add_local_python_source("soundlib")
@@ -75,8 +76,7 @@ music_image = (
         index_url="https://download.pytorch.org/whl/cu128",
     )
     .run_commands(
-        f"git clone --depth 1 {ACE_REPO} {ACE_DIR}",
-        f"cd {ACE_DIR} && git rev-parse HEAD",
+        f"git clone {ACE_REPO} {ACE_DIR} && cd {ACE_DIR} && git checkout {ACE_COMMIT}",
         f"pip install {ACE_DIR}/acestep/third_parts/nano-vllm",
     )
     .pip_install(
@@ -126,6 +126,32 @@ def plan_sound(frames: list[dict], shots: list[dict], duration: float, speech: l
     return ask_claude(frames, shots, duration, speech)
 
 
+# --- One-time preparation (CPU, cheap) -------------------------------------------
+
+@app.function(image=foley_image, volumes={WEIGHTS: weights}, timeout=3600)
+def prepare_foley() -> str:
+    """Download the effects model and check that its code imports."""
+    from soundlib import weights as W
+
+    fetched = W.download_foley(WEIGHTS)
+    weights.commit()
+    from hunyuanvideo_foley.utils.feature_utils import feature_process  # noqa: F401
+    from hunyuanvideo_foley.utils.model_utils import denoise_process, load_model  # noqa: F401
+    return "downloaded" if fetched else "already there"
+
+
+@app.function(image=music_image, volumes={WEIGHTS: weights}, timeout=3600)
+def prepare_music() -> str:
+    """Download the music model and check that its code imports."""
+    from soundlib import weights as W
+
+    fetched = W.download_music(WEIGHTS)
+    weights.commit()
+    from acestep.handler import AceStepHandler  # noqa: F401
+    from acestep.inference import GenerationConfig, GenerationParams, generate_music  # noqa: F401
+    return "downloaded" if fetched else "already there"
+
+
 # --- Sound effects -------------------------------------------------------------
 
 @app.cls(image=foley_image, gpu=C.GPU_TYPE, volumes={WEIGHTS: weights}, timeout=1800,
@@ -135,23 +161,16 @@ class Foley:
     def load(self):
         started = time.time()
         import torch
-        from huggingface_hub import snapshot_download
+        from soundlib import weights as W
 
-        model_dir = f"{WEIGHTS}/foley"
-        marker = f"{model_dir}/.download-complete"
-        if not os.path.exists(marker):
-            snapshot_download(
-                "tencent/HunyuanVideo-Foley", local_dir=model_dir,
-                allow_patterns=["hunyuanvideo_foley.pth", "synchformer_state_dict.pth",
-                                "vae_128d_48k.pth", "*.yaml", "LICENSE", "NOTICE"],
-            )
-            open(marker, "w").close()
+        model_dir = W.foley_dir(WEIGHTS)
+        if W.download_foley(WEIGHTS):
+            weights.commit()
         from hunyuanvideo_foley.utils.model_utils import load_model
 
         config = f"{FOLEY_DIR}/configs/hunyuanvideo-foley-{C.FOLEY_MODEL_SIZE}.yaml"
         self.model_dict, self.cfg = load_model(
             model_dir, config, torch.device("cuda"), model_size=C.FOLEY_MODEL_SIZE)
-        weights.commit()  # also saves the SigLIP2 and CLAP helper models for next time
         self.load_seconds = time.time() - started
         self.reported_load = False
 
@@ -194,19 +213,10 @@ class Music:
     @modal.enter()
     def load(self):
         started = time.time()
-        from huggingface_hub import snapshot_download
+        from soundlib import weights as W
 
-        root = f"{WEIGHTS}/acestep"
-        marker = f"{root}/.download-complete"
-        if not os.path.exists(marker):
-            # The language-model planner is not used (music brief comes from Claude),
-            # so only the music model itself, its text encoder and its audio codec are needed.
-            snapshot_download(
-                "ACE-Step/Ace-Step1.5", local_dir=f"{root}/checkpoints",
-                allow_patterns=[f"{C.MUSIC_MODEL}/*", "vae/*", "Qwen3-Embedding-0.6B/*",
-                                "config.json"],
-            )
-            open(marker, "w").close()
+        root = W.music_root(WEIGHTS)
+        if W.download_music(WEIGHTS):
             weights.commit()
         from acestep.handler import AceStepHandler
 
