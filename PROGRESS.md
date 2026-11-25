@@ -628,3 +628,32 @@ scratch" and "Round 12 version". Copy:
 - Job pages, the editor and every other API call still need a signed-in account.
 - The Modal secret `site-password` must stay: it signs the session cookies.
 
+
+## Google Lyria as a second music model (2026-11-25, thread "Try Google Lyria for music")
+
+- **What works:** `music_provider: lyria` in `settings.json` makes the music with Google
+  Lyria on Vertex AI instead of ACE-Step (default stays `acestep`, so the live site is
+  unchanged). Code: `soundlib/lyria.py`, `lyria_app.py` (its own Modal app
+  `ai-sound-designer-lyria`; `modal deploy lyria_app.py` does not touch the live apps).
+  Lyria cannot rewrite a section in place, so the cue sheet's sections go into the brief
+  with their times. `lyria_model`: `lyria-002` (Lyria 2, fully released, always 30 s),
+  `lyria-3-pro-preview` (preview; keeps to the asked length and the timed sections),
+  `lyria-3-clip-preview` (preview; 30 s).
+- **Google Cloud:** project `ai-sound-designer-c20200` on Anthony's billing account;
+  service account `lyria-music` (Vertex AI User only); key in Modal secret
+  `google-cloud`. Sign in from a cloud session with `scripts/google_login.py`.
+- **Licence:** Lyria is NOT on Google's list of services with the generative-AI
+  copyright indemnity (list of 2026-07-20). Lyria 3 is a preview release. Every Lyria
+  track carries an inaudible SynthID watermark. Anthony was told; lawyer to confirm.
+- **Round 14 comparison** (`variants_lyria.json`, run `20261125-221443`): current music
+  vs Lyria 3 Pro vs Lyria 2, same plan, effects and mix. Rating page (separate from the
+  Sound Tuning Room, which the layering thread is using):
+  https://claude.ai/artifact/C1LPE89e6bRzenGJqP7jXX . Full-size files in
+  `/mnt/project-files/lyria_test/`. After Anthony rates: copy the page's `ratings` rows
+  into `ratings.csv`, `python tune.py --variants variants_lyria.json --apply` only if he
+  wants Lyria as the default, then `modal deploy` is with the editor thread.
+- **Not done:** videos longer than 30 s with Lyria 2 blend several clips (untested by
+  ear). Lyria 3 prices in settings are unconfirmed. Two Lyria requests were paid for and
+  lost to a download error on the first run (about $0.14).
+
+| 2026-11-25 | Lyria test: fresh baseline + Lyria 2 + Lyria 3 Pro, and trial clips | 146 | about $0.29 Modal + about $0.60 Google (est.) |
