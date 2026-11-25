@@ -565,12 +565,14 @@ function finished(id, job) {
   $("done-sub").textContent = (job.name ? job.name + " · " : "") + (job.seconds ? job.seconds + " seconds" : "") + " · " + (label[job.parts] || label.both) +
     (job.vibe ? " · music feeling: " + job.vibe : "") + (job.test_tones ? " · TEST TONES ONLY" : "");
   // The editor: move, mute or remove single sounds and rebalance effects and music.
-  fetch("/api/edit/" + id, { cache: "no-store" }).then(r => {
-    if (!r.ok) return;
+  // Right after a video finishes its editor files can take a moment to show up, so ask again.
+  const offerEditor = left => fetch("/api/edit/" + id, { cache: "no-store" }).then(r => {
+    if (!r.ok) { if (left > 0) setTimeout(() => offerEditor(left - 1), 3000); return; }
     $("fine-tune").href = "/edit/" + id;
     $("fine-tune").classList.remove("hidden");
     $("dl-video").classList.add("secondary");
-  }).catch(() => {});
+  }).catch(() => { if (left > 0) setTimeout(() => offerEditor(left - 1), 3000); });
+  offerEditor(10);
   $("keep-note").textContent = `This page and its files stay available for ${cfg ? cfg.keep_days : 7} days. Bookmark it to come back.`;
   show("done");
 }
