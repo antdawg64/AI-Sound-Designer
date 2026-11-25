@@ -139,6 +139,9 @@
     "web_keep_days": 7,
     "_web_login_url": "The site is private behind one shared password (Modal secret 'site-password'). Leave this empty to use the built-in sign-in page, or put the address of a separate sign-in page here; that page must post a form with the field 'password' to /login on this site.",
     "web_login_url": "",
+    "_web_supabase": "Personal accounts. When both values below are set, the shared password is switched off and people sign in on the page at web_login_url, which posts their Supabase token to /login. Both are public values, not secrets. See soundlib/gate.py.",
+    "web_supabase_url": "",
+    "web_supabase_anon_key": "",
     "_web_blocked_countries": "The effects model (HunyuanVideo-Foley) is not licensed in the EU, the UK or South Korea. Two-letter country codes.",
     "web_blocked_countries": ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "GB", "KR"]
   },

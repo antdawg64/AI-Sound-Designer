@@ -181,7 +181,8 @@ def web():
     import os
 
     from soundlib import gate
-    gate.attach(api, os.environ.get("SITE_PASSWORD", ""), str(C.WEB_LOGIN_URL or ""), Path("/root/web"))
+    gate.attach(api, os.environ.get("SITE_PASSWORD", ""), str(C.WEB_LOGIN_URL or ""), Path("/root/web"),
+                supabase_url=str(C.WEB_SUPABASE_URL or ""), supabase_anon_key=str(C.WEB_SUPABASE_ANON_KEY or ""))
 
     def visitor_ip(request: Request) -> str | None:
         forwarded = request.headers.get("x-forwarded-for", "")
