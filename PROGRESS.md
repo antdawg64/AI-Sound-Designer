@@ -167,3 +167,28 @@ Anthony's scores on the three takes: 2, 3 (sparse music), 1 (bigger music).
 
 | 2026-11-25 | Phase 2 tuning run: baseline, 6 variants, 3 takes | 657 | $0.42 est. |
 | 2026-11-25 | Phase 2 confirmation run with the new defaults | 63 | $0.03 est. |
+
+## Improvement round 2 (2026-11-25), waiting for Anthony's ratings
+
+Anthony approved a round on three ideas before Prompt 3. Built on the round 1 defaults:
+
+- `plan_detail: close`: Claude sees up to 6 frames per shot (78 frames for the vacuum
+  video instead of 13) and lists exact moments; each moment gets an extra effect
+  generated from a 1.5 s clip around it and laid on the effects track at that time.
+  The plan also names the room, used for the echo.
+- `foley_candidates: 3`: three versions of each effects clip; the CLAP model (already
+  part of the effects model, Apache 2.0) scores sound against description and the best
+  is kept. Claude cannot listen to audio, so Claude does not do the picking.
+- `sfx_reverb: 0.25`: room echo on the effects, sized from the plan's room.
+- `music_duck_under_sfx: true`: music dips under loud effects.
+- Variant `all_together` changes all four at once (`tune.py` now accepts `settings`
+  with several changes; it wins outright only if it scores at least as high as every
+  single change).
+
+Round 1 files were renamed `variants_round1.json` and `ratings_round1.csv`. The round 2
+page is the same claude.ai page (Sound Tuning Room); copy in
+`/mnt/project-files/prompt2_tuning/round2/`. After Anthony rates: copy the page's
+`ratings` rows for run `20261125-014748` into `ratings.csv`, run
+`python tune.py --apply`, redeploy, and stop. Do not start Phase 3.
+
+| 2026-11-25 | Round 2 tuning run: baseline and 5 variants | 567 | $0.49 est. |
