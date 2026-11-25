@@ -208,6 +208,17 @@
 
 <script>
 "use strict";
+// If the sign-in has run out (or the site was locked while this page was open), go and
+// sign in, then come straight back here.
+const plainFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const reply = await plainFetch(...args);
+  if (reply.status === 401) {
+    location.href = "/login?next=" + encodeURIComponent(location.pathname);
+    await new Promise(() => {});
+  }
+  return reply;
+};
 const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const JOB = (location.pathname.match(/^\/edit\/([A-Za-z0-9]+)/) || [])[1] || "";

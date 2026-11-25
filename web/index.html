@@ -348,6 +348,17 @@
 
 <script>
 const $ = id => document.getElementById(id);
+// If the sign-in has run out (or the site was locked while this page was open), go and
+// sign in, then come straight back here.
+const plainFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const reply = await plainFetch(...args);
+  if (reply.status === 401) {
+    location.href = "/login?next=" + encodeURIComponent(location.pathname);
+    await new Promise(() => {});
+  }
+  return reply;
+};
 const STEPS = ["Reading the video", "Planning the sound", "Making the sound effects",
                "Composing the music", "Mixing", "Checking the result"];
 const show = id => {
