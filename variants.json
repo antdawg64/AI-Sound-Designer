@@ -1,42 +1,29 @@
 {
-  "_about": "Round 2 (2026-11-25). What 'python tune.py' tries. A variant changes ONE setting ('setting' + 'value'), or several together ('settings'). 'videos' empty means every video in test_videos/. Round 1 is in variants_round1.json.",
+  "_about": "Round 3 (2026-11-25): how loud the effects should be. Anthony said the effects were too loud in general, so the default went from -18 to -22 before this round. Earlier rounds are in variants_round1.json and variants_round2.json.",
   "videos": [],
   "vibes": {},
   "include_takes": false,
   "variants": [
     {
-      "id": "close_planning",
-      "label": "Closer look, exact moments",
-      "setting": "plan_detail",
-      "value": "close",
-      "why": "Claude studies up to 6 frames per shot instead of 1, and adds an extra effect at each exact moment it spots, like a grab or a snap."
+      "id": "effects_quieter_still",
+      "label": "Effects quieter still",
+      "setting": "sfx_lufs_no_voice",
+      "value": -26.0,
+      "why": "Effects another 4 dB down, level with the music."
     },
     {
-      "id": "best_of_three",
-      "label": "Best of three effects",
-      "setting": "foley_candidates",
-      "value": 3,
-      "why": "Makes three versions of every effects clip and keeps the one that best matches the description."
+      "id": "effects_much_quieter",
+      "label": "Effects well behind the music",
+      "setting": "sfx_lufs_no_voice",
+      "value": -30.0,
+      "why": "Effects 8 dB down from the first tile, so the music leads."
     },
     {
-      "id": "room_reverb",
-      "label": "Room echo on effects",
-      "setting": "sfx_reverb",
-      "value": 0.25,
-      "why": "Adds a little echo sized to the room in the picture, so effects sit in the space instead of sounding dry."
-    },
-    {
-      "id": "music_ducks",
-      "label": "Music dips under loud effects",
-      "setting": "music_duck_under_sfx",
-      "value": true,
-      "why": "The music drops back for a moment whenever the effects get loud, then comes back."
-    },
-    {
-      "id": "all_together",
-      "label": "All four together",
-      "settings": {"plan_detail": "close", "foley_candidates": 3, "sfx_reverb": 0.25, "music_duck_under_sfx": true},
-      "why": "Closer planning, best of three, room echo and music dipping, all at once."
+      "id": "effects_as_before",
+      "label": "Effects as loud as before",
+      "setting": "sfx_lufs_no_voice",
+      "value": -18.0,
+      "why": "The old level you called too loud, here only for reference."
     }
   ]
 }

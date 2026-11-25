@@ -220,3 +220,12 @@ variant: the next round should test quieter effects (`sfx_lufs_no_voice`, `spot_
 The sound with the current defaults is
 `/mnt/project-files/prompt2_tuning/new_defaults/mitey_vacuum_tuned_round2.mp4`.
 Best score so far is 3 out of 5. Phase 3 has not been started.
+
+## Round 3 (2026-11-25): effects level, waiting for Anthony's ratings
+
+Anthony: "the foley is too loud in general". Default effects level lowered 4 dB
+(`sfx_lufs_no_voice` -18 to -22, `sfx_lufs` -21 to -25). A free comparison (mix only,
+all sound cached) is on the Sound Tuning Room page, run `20261125-025310`: current
+(-22), -26, -30, and the old -18 for reference. After he rates: copy the page's rows
+for that run into `ratings.csv`, `python tune.py --apply`, redeploy. Rounds 1 and 2 are
+in `variants_round*.json` / `ratings_round*.csv`.

@@ -1,0 +1,42 @@
+{
+  "_about": "Round 2 (2026-11-25). What 'python tune.py' tries. A variant changes ONE setting ('setting' + 'value'), or several together ('settings'). 'videos' empty means every video in test_videos/. Round 1 is in variants_round1.json.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "close_planning",
+      "label": "Closer look, exact moments",
+      "setting": "plan_detail",
+      "value": "close",
+      "why": "Claude studies up to 6 frames per shot instead of 1, and adds an extra effect at each exact moment it spots, like a grab or a snap."
+    },
+    {
+      "id": "best_of_three",
+      "label": "Best of three effects",
+      "setting": "foley_candidates",
+      "value": 3,
+      "why": "Makes three versions of every effects clip and keeps the one that best matches the description."
+    },
+    {
+      "id": "room_reverb",
+      "label": "Room echo on effects",
+      "setting": "sfx_reverb",
+      "value": 0.25,
+      "why": "Adds a little echo sized to the room in the picture, so effects sit in the space instead of sounding dry."
+    },
+    {
+      "id": "music_ducks",
+      "label": "Music dips under loud effects",
+      "setting": "music_duck_under_sfx",
+      "value": true,
+      "why": "The music drops back for a moment whenever the effects get loud, then comes back."
+    },
+    {
+      "id": "all_together",
+      "label": "All four together",
+      "settings": {"plan_detail": "close", "foley_candidates": 3, "sfx_reverb": 0.25, "music_duck_under_sfx": true},
+      "why": "Closer planning, best of three, room echo and music dipping, all at once."
+    }
+  ]
+}

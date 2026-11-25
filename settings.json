@@ -62,9 +62,9 @@
   "mix": {
     "_levels": "Loudness of each layer before the final mix, in LUFS. Higher (closer to 0) is louder. The no_voice numbers are used when nobody speaks.",
     "voice_lufs": -16.0,
-    "sfx_lufs": -21.0,
+    "sfx_lufs": -25.0,
     "music_lufs": -27.0,
-    "sfx_lufs_no_voice": -18.0,
+    "sfx_lufs_no_voice": -22.0,
     "music_lufs_no_voice": -26.0,
     "_sfx_reverb": "How much room echo is added to the effects, 0 (none) to 1. The room size comes from the sound plan.",
     "sfx_reverb": 0.0,
