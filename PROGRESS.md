@@ -684,3 +684,18 @@ scratch" and "Round 12 version". Copy:
 - Job pages, the editor and every other API call still need a signed-in account.
 - The Modal secret `site-password` must stay: it signs the session cookies.
 
+
+## Tuning round, 2026-11-25
+
+From Anthony's ratings in `ratings.csv` (current settings scored 2.0 out of 5):
+
+- `layered`: 3.0 (better)
+- `layered_pro`: 4.0 (better (all its settings applied))
+- `layered_soft`: 3.0 (better)
+- `stable`: 2.0 (same)
+- `stable_layered`: 3.0 (better)
+
+New defaults written to `settings.json`:
+
+- `sfx_layering`: `single` to `layered`
+- `mix_style`: `classic` to `pro`
