@@ -1,29 +1,36 @@
 {
-  "_about": "Round 3 (2026-11-25): how loud the effects should be. Anthony said the effects were too loud in general, so the default went from -18 to -22 before this round. Earlier rounds are in variants_round1.json and variants_round2.json.",
+  "_about": "Round 4 (2026-11-25): effects still too loud after round 3 (Anthony: 'better but still loud'), default now -30. Earlier rounds are in variants_round*.json.",
   "videos": [],
   "vibes": {},
   "include_takes": false,
   "variants": [
     {
-      "id": "effects_quieter_still",
-      "label": "Effects quieter still",
+      "id": "effects_minus_4",
+      "label": "Effects 4 dB quieter",
       "setting": "sfx_lufs_no_voice",
-      "value": -26.0,
-      "why": "Effects another 4 dB down, level with the music."
+      "value": -34.0,
+      "why": "One more step down from the first tile."
     },
     {
-      "id": "effects_much_quieter",
-      "label": "Effects well behind the music",
+      "id": "effects_minus_8",
+      "label": "Effects 8 dB quieter",
       "setting": "sfx_lufs_no_voice",
-      "value": -30.0,
-      "why": "Effects 8 dB down from the first tile, so the music leads."
+      "value": -38.0,
+      "why": "Two steps down. Effects become a faint layer under the music."
     },
     {
-      "id": "effects_as_before",
-      "label": "Effects as loud as before",
-      "setting": "sfx_lufs_no_voice",
-      "value": -18.0,
-      "why": "The old level you called too loud, here only for reference."
+      "id": "no_loud_boost",
+      "label": "No extra push on loud moments",
+      "setting": "loudness_db",
+      "value": {"quiet": -6.0, "medium": 0.0, "loud": 0.0},
+      "why": "Sounds the plan marks as loud (most of the vacuum roar) no longer get a 4 dB boost over the rest."
+    },
+    {
+      "id": "softer_moments",
+      "label": "Softer moment effects",
+      "setting": "spot_gain_db",
+      "value": -8.0,
+      "why": "The extra effects placed at exact moments (hook, snap, whoosh) come down 6 dB."
     }
   ]
 }

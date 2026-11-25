@@ -1,0 +1,29 @@
+{
+  "_about": "Round 3 (2026-11-25): how loud the effects should be. Anthony said the effects were too loud in general, so the default went from -18 to -22 before this round. Earlier rounds are in variants_round1.json and variants_round2.json.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "effects_quieter_still",
+      "label": "Effects quieter still",
+      "setting": "sfx_lufs_no_voice",
+      "value": -26.0,
+      "why": "Effects another 4 dB down, level with the music."
+    },
+    {
+      "id": "effects_much_quieter",
+      "label": "Effects well behind the music",
+      "setting": "sfx_lufs_no_voice",
+      "value": -30.0,
+      "why": "Effects 8 dB down from the first tile, so the music leads."
+    },
+    {
+      "id": "effects_as_before",
+      "label": "Effects as loud as before",
+      "setting": "sfx_lufs_no_voice",
+      "value": -18.0,
+      "why": "The old level you called too loud, here only for reference."
+    }
+  ]
+}

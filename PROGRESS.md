@@ -229,3 +229,28 @@ all sound cached) is on the Sound Tuning Room page, run `20261125-025310`: curre
 (-22), -26, -30, and the old -18 for reference. After he rates: copy the page's rows
 for that run into `ratings.csv`, `python tune.py --apply`, redeploy. Rounds 1 and 2 are
 in `variants_round*.json` / `ratings_round*.csv`.
+
+## Tuning round, 2026-11-25
+
+From Anthony's ratings in `ratings.csv` (current settings scored 1.0 out of 5):
+
+- `effects_as_before`: 1.0 (same)
+- `effects_much_quieter`: 3.0 (better)
+- `effects_quieter_still`: 2.0 (better, but another change to the same setting scored higher)
+
+New defaults written to `settings.json`:
+
+- `sfx_lufs_no_voice`: `-22.0` to `-30`
+
+Round 3 outcome: quieter was better every step (-18: 1, -22: 1, -26: 2, -30: 3), and
+Anthony added "better but still loud". `sfx_lufs_no_voice` is now -30 (`sfx_lufs` -33
+with voice, set by hand to match).
+
+## Round 4 (2026-11-25): effects still too loud, waiting for Anthony's ratings
+
+Free mix-only comparison on the Sound Tuning Room page, run `20261125-030359`: current
+(-30), -34, -38, no +4 dB boost for sounds planned as "loud" (`loudness_db`), and
+moment effects 6 dB softer (`spot_gain_db` -8). After he rates: copy that run's rows
+into `ratings.csv`, `python tune.py --apply`, redeploy. If quieter keeps winning, the
+real problem may be the character of the effects (a constant harsh vacuum roar), not
+their level; ask Anthony what exactly sounds too loud.
