@@ -35,10 +35,21 @@ class MusicBrief(BaseModel):
     cut_times: list[float]
 
 
+class Moment(BaseModel):
+    time: float
+    description: str
+    loudness: Literal["quiet", "medium", "loud"]
+
+
+Room = Literal["tiny enclosed space", "small room", "medium room", "large room", "hall", "outdoors"]
+
+
 class SoundPlan(BaseModel):
     summary: str
     shots: list[ShotPlan]
     music: MusicBrief
+    moments: list[Moment] = []
+    room: Room = "medium room"
 
 
 SYSTEM = """You are a sound designer planning the audio for a short video. You are shown \
@@ -70,6 +81,18 @@ model understands ("tense, suspenseful, ominous, building dread").
 - tempo_bpm between 60 and 180 that fits the pace of the cuts.
 - cut_times: the shot changes (in seconds) the music should hit. Use the shot boundaries \
 you were given; leave it empty if there is only one shot.
+
+Then list the key moments: single instants where something visibly happens and a \
+viewer would expect to hear it right then (a grab, an impact, a snap, a door slam, a \
+switch flipping, something landing). For each: time in seconds (the instant it happens, \
+judged from the frame timestamps), a description of just that one short sound, and its \
+loudness. Only list moments you can actually see between or in the frames; do not guess. \
+Continuous sounds (a motor, wind, footsteps) belong in the shot effects, not here. \
+At most eight; an empty list is fine.
+
+room is the kind of space the sound lives in, from the listener's point of view, used \
+to pick the echo: tiny enclosed space, small room, medium room, large room, hall, or \
+outdoors.
 
 summary is one sentence saying what the video shows."""
 
@@ -147,6 +170,13 @@ def clean_plan(plan: dict, shots: list[dict], duration: float) -> dict:
                         "description": "soft natural room ambience", "loudness": "quiet"}]
         cleaned.append({"shot": shot["index"], "effects": effects})
     plan["shots"] = cleaned
+    moments = []
+    for m in sorted(plan.get("moments") or [], key=lambda m: m["time"]):
+        text = " ".join(m["description"].split()).rstrip(".")
+        if text and 0.0 <= m["time"] < duration:
+            moments.append({"time": round(float(m["time"]), 2), "description": text,
+                            "loudness": m["loudness"]})
+    plan["moments"] = moments[: C.MAX_MOMENTS]
     music = plan["music"]
     lo, hi = C.MUSIC_BPM_RANGE
     music["tempo_bpm"] = int(min(max(music["tempo_bpm"], lo), hi))

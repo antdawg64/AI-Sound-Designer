@@ -103,7 +103,9 @@ class Cloud:
             raise RuntimeError(f"{what}: the model returned nothing")
         self.gpu_calls.append({"what": what, "gpu": meta["gpu"],
                                "gpu_seconds": round(meta["gpu_seconds"], 2),
-                               "load_seconds": round(meta["load_seconds"], 2)})
+                               "load_seconds": round(meta["load_seconds"], 2),
+                               **({"match_scores": [round(x, 3) for x in meta["scores"]],
+                                   "picked": meta["picked"]} if meta.get("scores") else {})})
         data, sr = sf.read(io.BytesIO(b"".join(chunks)), dtype="float32", always_2d=True)
         return data, sr
 
@@ -111,7 +113,8 @@ class Cloud:
         return self._collect(
             self.foley.generate.remote_gen(
                 clip.read_bytes(), prompt, seed=C.SEED + seg["index"], steps=C.FOLEY_STEPS,
-                guidance=C.FOLEY_GUIDANCE, neg_prompt=C.FOLEY_NEG_PROMPT),
+                guidance=C.FOLEY_GUIDANCE, neg_prompt=C.FOLEY_NEG_PROMPT,
+                candidates=int(C.FOLEY_CANDIDATES)),
             f"effects segment {seg['index']}")
 
     def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
@@ -225,7 +228,8 @@ class Cached:
     def effects(self, clip: Path, prompt: str, seg: dict) -> tuple[np.ndarray, int]:
         key = self._key("fx", hashlib.sha256(clip.read_bytes()).hexdigest(), prompt,
                         C.SEED + seg["index"], C.FOLEY_STEPS, C.FOLEY_GUIDANCE,
-                        C.FOLEY_NEG_PROMPT, C.FOLEY_MODEL_SIZE)
+                        C.FOLEY_NEG_PROMPT, C.FOLEY_MODEL_SIZE,
+                        *([f"best of {int(C.FOLEY_CANDIDATES)}"] if int(C.FOLEY_CANDIDATES) > 1 else []))
         return self._audio(key, lambda: self.backend.effects(clip, prompt, seg))
 
     def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
@@ -274,6 +278,22 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             audio, sr = backend.effects(clip, seg["prompt"], seg)
             seg["audio"] = media.to_stereo_48k(audio, sr)
         sfx = mixing.stitch_effects(segments, duration)
+        spots = []
+        if C.PLAN_DETAIL == "close":
+            for i, m in enumerate(plan["moments"]):
+                spot = {"index": 1000 + i, "time": m["time"], "prompt": m["description"],
+                        "gain_db": C.LOUDNESS_DB[m["loudness"]],
+                        "clip_start": round(max(0.0, m["time"] - C.SPOT_BEFORE_SECONDS), 3),
+                        "clip_end": round(min(duration, m["time"] + C.SPOT_AFTER_SECONDS), 3)}
+                if spot["clip_end"] - spot["clip_start"] < 0.6:
+                    continue
+                clip = media.cut_clip(video, spot, work / f"spot{i:03d}.mp4")
+                say(f"    moment at {m['time']:.1f}s: {m['description']}")
+                audio, sr = backend.effects(clip, spot["prompt"], spot)
+                spot["audio"] = media.to_stereo_48k(audio, sr)
+                spots.append(spot)
+            sfx = mixing.add_spots(sfx, spots)
+        sfx = mixing.add_reverb(sfx, plan["room"], float(C.SFX_REVERB))
         sfx = mixing.set_loudness(sfx, C.SFX_LUFS if speech else C.SFX_LUFS_NO_VOICE)
 
         say("4/6 Composing the music")
@@ -306,6 +326,8 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             "passed": result["passed"], "checks": result["checks"],
             "shots": shots, "speech": speech,
             "segments": [{k: v for k, v in s.items() if k != "audio"} for s in segments],
+            "moments": [{k: v for k, v in s.items() if k != "audio"} for s in spots],
+            "room": plan["room"],
             "music": {"caption": caption, "bpm": bpm, "claude_bpm": music_plan["tempo_bpm"],
                       "average_beat_to_cut_seconds": miss},
             "cost": {"gpu_seconds": round(gpu_seconds, 1), "gpu_dollars": round(gpu_dollars, 4),

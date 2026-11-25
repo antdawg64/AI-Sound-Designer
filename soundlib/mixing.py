@@ -119,6 +119,54 @@ def stitch_effects(segments: list[dict], duration: float) -> np.ndarray:
     return out
 
 
+def add_spots(sfx: np.ndarray, spots: list[dict]) -> np.ndarray:
+    """Lay extra one-off effects on the effects track at their exact moments.
+
+    Each spot needs clip_start (seconds), gain_db and audio (48 kHz stereo).
+    """
+    sr = C.SAMPLE_RATE
+    out = sfx.copy()
+    for spot in spots:
+        audio = level_clip(spot["audio"]) * (10 ** ((spot["gain_db"] + C.SPOT_GAIN_DB) / 20))
+        audio = audio.copy()
+        fade_in, fade_out = min(int(0.05 * sr), len(audio) // 2), min(int(0.3 * sr), len(audio) // 2)
+        if fade_in:
+            audio[:fade_in] *= np.linspace(0.0, 1.0, fade_in, dtype=np.float32)[:, None]
+        if fade_out:
+            audio[-fade_out:] *= np.linspace(1.0, 0.0, fade_out, dtype=np.float32)[:, None]
+        a = int(round(spot["clip_start"] * sr))
+        b = min(len(out), a + len(audio))
+        if b > a:
+            out[a:b] += audio[: b - a]
+    return out
+
+
+REVERB_SECONDS = {"tiny enclosed space": 0.18, "small room": 0.32, "medium room": 0.5,
+                  "large room": 0.9, "hall": 1.6, "outdoors": 0.0}
+
+
+def add_reverb(data: np.ndarray, room: str, amount: float) -> np.ndarray:
+    """Add room echo sized to `room`. `amount` is how loud the echo is (0 to 1)."""
+    from scipy.signal import fftconvolve
+
+    seconds = REVERB_SECONDS.get(room, 0.5)
+    if amount <= 0 or seconds <= 0 or not len(data):
+        return data
+    sr = C.SAMPLE_RATE
+    n = int(seconds * 1.5 * sr)
+    t = np.arange(n) / sr
+    rng = np.random.default_rng(7)
+    wet = np.zeros_like(data, dtype=np.float64)
+    pre = int(0.012 * sr)
+    for ch in range(data.shape[1]):
+        ir = rng.standard_normal(n) * np.exp(-6.91 * t / seconds)   # 60 dB down at `seconds`
+        ir = np.convolve(ir, np.ones(6) / 6, mode="same")            # soften the top end
+        ir /= np.sqrt(np.sum(ir ** 2)) + 1e-12
+        tail = fftconvolve(data[:, ch].astype(np.float64), ir)[: len(data)]
+        wet[pre:, ch] = tail[: len(data) - pre]
+    return (data + amount * wet).astype(np.float32)
+
+
 # --- Music -------------------------------------------------------------------
 
 def shape_music(data: np.ndarray, sr: int, duration: float) -> np.ndarray:
@@ -155,15 +203,19 @@ def mix(video: Path, sfx_wav: Path, music_wav: Path, voice_wav: Path | None,
     """
     premix = work / "premix.wav"
     inputs = ["-i", sfx_wav, "-i", music_wav]
+    chain, sfx, music = [], "[0:a]", "[1:a]"
+    if C.MUSIC_DUCK_UNDER_SFX:  # the music dips when the effects get loud
+        chain.append("[0:a]asplit=2[sfx][sfxkey]")
+        chain.append(f"[1:a][sfxkey]sidechaincompress={C.DUCK_UNDER_SFX}[m1]")
+        sfx, music = "[sfx]", "[m1]"
     if voice_wav is not None:
         inputs += ["-i", voice_wav]
-        graph = (
-            "[2:a]asplit=2[voice][key];"
-            f"[1:a][key]sidechaincompress={C.DUCK}[music];"
-            "[0:a][music][voice]amix=inputs=3:normalize=0:duration=longest[out]"
-        )
+        chain.append("[2:a]asplit=2[voice][key]")
+        chain.append(f"{music}[key]sidechaincompress={C.DUCK}[m2]")
+        chain.append(f"{sfx}[m2][voice]amix=inputs=3:normalize=0:duration=longest[out]")
     else:
-        graph = "[0:a][1:a]amix=inputs=2:normalize=0:duration=longest[out]"
+        chain.append(f"{sfx}{music}amix=inputs=2:normalize=0:duration=longest[out]")
+    graph = ";".join(chain)
     run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", graph, "-map", "[out]",
          "-ar", C.SAMPLE_RATE, "-ac", "2", "-c:a", "pcm_f32le", premix])
 

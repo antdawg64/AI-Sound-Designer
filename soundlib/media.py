@@ -75,18 +75,21 @@ def detect_shots(path: str | Path, duration: float) -> list[dict]:
 def extract_keyframes(path: str | Path, shots: list[dict], out_dir: Path) -> list[dict]:
     """A few small JPEGs per shot for Claude to look at."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    per_shot = C.FRAMES_PER_SHOT
-    while per_shot > 1 and per_shot * len(shots) > C.MAX_FRAMES:
+    close = C.PLAN_DETAIL == "close"
+    per_shot = C.CLOSE_FRAMES_PER_SHOT if close else C.FRAMES_PER_SHOT
+    max_frames = C.CLOSE_MAX_FRAMES if close else C.MAX_FRAMES
+    long_side = C.CLOSE_FRAME_LONG_SIDE if close else C.FRAME_LONG_SIDE
+    while per_shot > 1 and per_shot * len(shots) > max_frames:
         per_shot -= 1
     frames = []
-    for shot in shots[: C.MAX_FRAMES]:
+    for shot in shots[:max_frames]:
         length = shot["end"] - shot["start"]
-        positions = [0.5] if per_shot == 1 else np.linspace(0.12, 0.88, per_shot)
+        positions = [0.5] if per_shot == 1 else np.linspace(0.08 if close else 0.12, 0.92 if close else 0.88, per_shot)
         for k, pos in enumerate(positions):
             t = shot["start"] + float(pos) * length
             out = out_dir / f"shot{shot['index']:03d}_{k}.jpg"
             scale = (
-                f"scale='if(gt(iw,ih),{C.FRAME_LONG_SIDE},-2)':'if(gt(iw,ih),-2,{C.FRAME_LONG_SIDE})'"
+                f"scale='if(gt(iw,ih),{long_side},-2)':'if(gt(iw,ih),-2,{long_side})'"
             )
             run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.3f}", "-i", path, "-frames:v", "1",
                  "-vf", scale, "-q:v", "5", out])

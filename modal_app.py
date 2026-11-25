@@ -180,11 +180,40 @@ class Foley:
         self.load_seconds = time.time() - started
         self.reported_load = False
 
+    def _match_scores(self, prompt: str, audios: list, sample_rate: int) -> list[float]:
+        """How well each audio matches the words, from the CLAP model (higher is better)."""
+        import torch
+        import torchaudio
+        from transformers import ClapModel, ClapProcessor
+
+        if getattr(self, "clap", None) is None:
+            self.clap = ClapModel.from_pretrained("laion/larger_clap_general").to("cuda").eval()
+            self.clap_processor = ClapProcessor.from_pretrained("laion/larger_clap_general")
+        waves = []
+        for audio in audios:
+            mono = audio.detach().float().cpu()
+            mono = mono.mean(dim=0) if mono.ndim > 1 else mono
+            if sample_rate != 48000:
+                mono = torchaudio.functional.resample(mono, sample_rate, 48000)
+            waves.append(mono.numpy())
+        with torch.no_grad():
+            a = self.clap_processor(audios=waves, sampling_rate=48000, return_tensors="pt")
+            t = self.clap_processor(text=[prompt], return_tensors="pt", padding=True)
+            audio_emb = self.clap.get_audio_features(**{k: v.to("cuda") for k, v in a.items()})
+            text_emb = self.clap.get_text_features(**{k: v.to("cuda") for k, v in t.items()})
+            audio_emb = torch.nn.functional.normalize(audio_emb, dim=-1)
+            text_emb = torch.nn.functional.normalize(text_emb, dim=-1)
+            return [float(x) for x in (audio_emb @ text_emb.T).squeeze(-1).cpu()]
+
     @modal.method()
     def generate(self, clip: bytes, prompt: str, seed: int = C.SEED,
                  steps: int = C.FOLEY_STEPS, guidance: float = C.FOLEY_GUIDANCE,
-                 neg_prompt: str = C.FOLEY_NEG_PROMPT):
-        """Generate sound for one short silent clip. Streams back FLAC audio."""
+                 neg_prompt: str = C.FOLEY_NEG_PROMPT, candidates: int = 1):
+        """Generate sound for one short silent clip. Streams back FLAC audio.
+
+        With candidates > 1, makes that many versions (different seeds) and keeps the
+        one whose sound best matches the description.
+        """
         import random
         import tempfile
 
@@ -194,21 +223,30 @@ class Foley:
         from hunyuanvideo_foley.utils.model_utils import denoise_process
 
         started = time.time()
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
+        made, sample_rate = [], 48000
         with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
             f.write(clip)
             f.flush()
             visual, text, seconds = feature_process(
                 f.name, prompt, self.model_dict, self.cfg, neg_prompt=neg_prompt)
-            audio, sample_rate = denoise_process(
-                visual, text, seconds, self.model_dict, self.cfg,
-                guidance_scale=guidance, num_inference_steps=steps)
-        meta = {"gpu_seconds": time.time() - started, "load_seconds": 0.0, "gpu": C.GPU_TYPE}
+            for n in range(max(1, int(candidates))):
+                s = seed + 7919 * n
+                random.seed(s)
+                np.random.seed(s)
+                torch.manual_seed(s)
+                audio, sample_rate = denoise_process(
+                    visual, text, seconds, self.model_dict, self.cfg,
+                    guidance_scale=guidance, num_inference_steps=steps)
+                made.append(audio[0])
+        scores, best = [], 0
+        if len(made) > 1:
+            scores = self._match_scores(prompt, made, int(sample_rate))
+            best = max(range(len(made)), key=lambda i: scores[i])
+        meta = {"gpu_seconds": time.time() - started, "load_seconds": 0.0, "gpu": C.GPU_TYPE,
+                "scores": scores, "picked": best}
         if not self.reported_load:
             meta["load_seconds"], self.reported_load = self.load_seconds, True
-        yield from _stream_audio(_to_numpy(audio[0]), int(sample_rate), meta)
+        yield from _stream_audio(_to_numpy(made[best]), int(sample_rate), meta)
 
 
 # --- Music ---------------------------------------------------------------------

@@ -36,6 +36,7 @@ TUNING = ROOT / "tuning"
 RATINGS = ROOT / "ratings.csv"
 TEMPLATE = ROOT / "soundlib" / "assets" / "tuning_page.html"
 BASELINE = "current"
+COMBO = "(several)"
 CSV_FIELDS = ["video", "variant", "setting", "value", "rating", "note", "rated_at"]
 
 
@@ -47,10 +48,13 @@ def load_variants(path: Path) -> dict:
     spec = json.loads(path.read_text())
     seen = {BASELINE}
     for v in spec["variants"]:
+        if "settings" in v:  # a combination: several settings changed together
+            v["setting"], v["value"] = COMBO, v["settings"]
         missing = [k for k in ("id", "label", "setting", "value", "why") if k not in v]
         if missing:
             raise ValueError(f"Variant {v.get('id', '?')} is missing: {missing}")
-        C.default(v["setting"])  # raises a clear error for an unknown setting
+        for name in (v["value"] if v["setting"] == COMBO else [v["setting"]]):
+            C.default(name)  # raises a clear error for an unknown setting
         if v["id"] in seen or v["id"].startswith("take_"):
             raise ValueError(f"Variant id '{v['id']}' is used twice or is reserved")
         seen.add(v["id"])
@@ -118,7 +122,7 @@ def run(spec: dict, videos: list[Path], backend, only: list[str]) -> dict:
         for v in todo:
             C.reset()
             if v["setting"]:
-                C.override({v["setting"]: v["value"]})
+                C.override(v["value"] if v["setting"] == COMBO else {v["setting"]: v["value"]})
             say(f"\n##### {video.name}: {v['label']} #####")
             out = TUNING / vid / v["id"]
             report = one(video, v["id"], out, vibe=vibe)
@@ -128,7 +132,9 @@ def run(spec: dict, videos: list[Path], backend, only: list[str]) -> dict:
             file = f"media/{vid}__{slug(v['id'])}.mp4"
             preview(out / "final.mp4", TUNING / file)
             change = None
-            if v["setting"]:
+            if v["setting"] == COMBO:
+                change = "several settings at once"
+            elif v["setting"]:
                 change = f"{v['setting']}: {show(C.default(v['setting']))} → {show(v['value'])}"
             items.append({"id": v["id"], "key": f"{vid}__{slug(v['id'])}", "label": v["label"],
                           "why": v["why"], "setting": v["setting"], "value": v["value"],
@@ -295,13 +301,25 @@ def decide(rows: list[dict]) -> dict:
                "current_score": round(theirs, 2), "videos": len(shared),
                "verdict": "better" if mine > theirs else ("same" if mine == theirs else "worse")}
         table.append(row)
-        if mine > theirs:
+        if mine > theirs and row["setting"] != COMBO:
             best = winners.get(row["setting"])
             if best is None or mine > best["score"]:
                 winners[row["setting"]] = row
     for row in table:
-        if row["verdict"] == "better" and winners.get(row.get("setting")) is not row:
+        if row.get("verdict") == "better" and row["setting"] != COMBO \
+                and winners.get(row["setting"]) is not row:
             row["verdict"] = "better, but another change to the same setting scored higher"
+    # A combination wins outright when it beats the current settings and scores at least
+    # as high as every single change; then all of its settings become the defaults.
+    combos = [r for r in table if r.get("setting") == COMBO and r["verdict"] == "better"]
+    if combos:
+        top = max(combos, key=lambda r: r["score"])
+        if all(top["score"] >= w["score"] for w in winners.values()):
+            winners = {name: {**top, "setting": name, "value": value}
+                       for name, value in top["value"].items()}
+            top["verdict"] = "better (best overall, all its settings applied)"
+        else:
+            top["verdict"] = "better, but a single change scored higher"
     return {"table": table, "winners": winners,
             "baseline": round(sum(base.values()) / len(base), 2) if base else None,
             "takes": [r for r in rows if r["variant"].startswith("take_") and r.get("rating")]}
