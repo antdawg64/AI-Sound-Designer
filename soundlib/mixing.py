@@ -50,6 +50,38 @@ def measure_file(path: str | Path) -> dict:
 
 # --- Effects -----------------------------------------------------------------
 
+def level_clip(audio: np.ndarray) -> np.ndarray:
+    """Scale a clip to SFX_CLIP_RMS_DB, with a cap on how much a quiet clip is boosted."""
+    rms = float(np.sqrt(np.mean(np.square(audio, dtype=np.float64)))) if len(audio) else 0.0
+    if rms < 1e-6:
+        return audio
+    gain_db = min(C.SFX_CLIP_RMS_DB - 20 * np.log10(rms), C.SFX_CLIP_MAX_BOOST_DB)
+    return (audio * 10 ** (gain_db / 20)).astype(np.float32)
+
+
+def even_out(data: np.ndarray, amount: float, max_boost_db: float,
+             window: float = 2.0) -> np.ndarray:
+    """Gently reduce slow swings in level (for example a very quiet intro).
+
+    Measures the level over `window`-second stretches and moves each stretch `amount`
+    of the way (0 to 1) towards the overall median level. Fast dynamics are untouched.
+    """
+    sr = C.SAMPLE_RATE
+    hop = int(window * sr / 4)
+    if amount <= 0 or len(data) < 4 * hop:
+        return data
+    mono = data.mean(axis=1).astype(np.float64) ** 2
+    centres = np.arange(0, len(data), hop)
+    half = int(window * sr / 2)
+    level = np.array([10 * np.log10(mono[max(0, c - half): c + half].mean() + 1e-10)
+                      for c in centres])
+    heard = level[level > level.max() - 50]
+    gain_db = np.clip((np.median(heard) - level) * amount, -max_boost_db, max_boost_db)
+    gain_db[level < level.max() - 50] = 0.0  # leave true silence alone
+    curve = np.interp(np.arange(len(data)), centres, gain_db)
+    return (data * (10 ** (curve / 20))[:, None]).astype(np.float32)
+
+
 def stitch_effects(segments: list[dict], duration: float) -> np.ndarray:
     """Lay the effect clips on one timeline, crossfading where neighbours overlap.
 
@@ -60,7 +92,9 @@ def stitch_effects(segments: list[dict], duration: float) -> np.ndarray:
     total = int(round(duration * sr))
     out = np.zeros((total, 2), dtype=np.float32)
     for seg in segments:
-        audio = seg["audio"] * (10 ** (seg.get("gain_db", 0.0) / 20))
+        # The effects model returns each clip at its own arbitrary level (some 30 dB
+        # quieter than others), so bring every clip to one level before the plan's gain.
+        audio = level_clip(seg["audio"]) * (10 ** (seg.get("gain_db", 0.0) / 20))
         want = int(round((seg["clip_end"] - seg["clip_start"]) * sr))
         if len(audio) < want:  # the model may return slightly less than asked for
             audio = np.concatenate([audio, np.zeros((want - len(audio), 2), dtype=np.float32)])
@@ -88,12 +122,12 @@ def stitch_effects(segments: list[dict], duration: float) -> np.ndarray:
 # --- Music -------------------------------------------------------------------
 
 def shape_music(data: np.ndarray, sr: int, duration: float) -> np.ndarray:
-    """Trim the music to the video length with a short fade at the end."""
+    """Trim the music to the video length, even out slow level swings, fade the end."""
     data = to_stereo_48k(data, sr)
     total = int(round(duration * C.SAMPLE_RATE))
     if len(data) < total:
         data = np.concatenate([data, np.zeros((total - len(data), 2), dtype=np.float32)])
-    data = data[:total].copy()
+    data = even_out(data[:total].copy(), C.MUSIC_EVEN_OUT, C.MUSIC_EVEN_OUT_MAX_DB)
     fade = min(int(C.MUSIC_FADE_OUT_SECONDS * C.SAMPLE_RATE), total // 4)
     if fade > 0:
         data[-fade:] *= np.linspace(1.0, 0.0, fade, dtype=np.float32)[:, None] ** 2

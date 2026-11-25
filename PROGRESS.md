@@ -4,73 +4,63 @@ _Last updated: 2026-11-24_
 
 ## Where things stand
 
-Phase 1 (the one-command prototype) is **written but not finished**. All the code
-exists. Everything that runs without a GPU has been tested and passes. The AI parts
-(Claude planning, HunyuanVideo-Foley effects, ACE-Step music) have **never been run**,
-because the cloud session it was built in could not connect to Modal. See "Blocked".
+Phase 1 (the one-command prototype) is **done and working for real**, as of
+2026-11-24. `python make_sound.py video.mp4` plans the sound with Claude, generates
+synced effects with HunyuanVideo-Foley and music with ACE-Step 1.5 on Modal, mixes
+them and checks the result. Waiting for Anthony to listen and say whether to start
+Phase 2.
 
 ## What works (tested)
 
-- Phase 0: CLAUDE.md, this file, `requirements.txt`, `scripts/setup.sh`, `.env.example`.
-- `python make_sound.py video.mp4 --dry-run` runs the whole pipeline end to end with
-  test tones standing in for the AI models, and writes `final.mp4`, `music.wav`,
-  `sfx.wav`, `plan.json` and `report.json` into `outputs/<video name>/`.
-- Tested this way on `mitey_vacuum_short_living_room_silent.mp4` (28 s, 13 shots, no
-  audio) and on a made-up talking clip. On both, every automatic check passed:
-  length within 0.1 s (28.000 s in, 28.000 s out), loudness -14.1 LUFS, true peak
-  -1.8 dBTP, neither stem silent.
-- Shot detection (PySceneDetect), speech detection (Silero VAD, MIT, bundled in
-  `soundlib/assets/`), key frame extraction, cutting shots into small clips for the
-  effects model, crossfaded stitching, tempo picking (beats land about 0.02 s from the
-  cuts on the test video), the ffmpeg mix with voice ducking, two-pass loudness
-  normalisation, and the automatic checks.
+- Real end-to-end run on `mitey_vacuum_short_living_room_silent.mp4` (28 s, 13 shots,
+  no speech). All automatic checks pass: length 28.000 s in and out, loudness
+  -13.8 LUFS, true peak -1.7 dBTP, neither stem silent.
+- Outputs for Anthony: `/mnt/project-files/prompt1_output/`
+  (`mitey_vacuum_with_sound.mp4`, `music.wav`, `sfx.wav`). In the repo they are in
+  `outputs/<video name>/` (git-ignored) with `plan.json` and `report.json`.
+- A run takes about 3.5 minutes when the GPU machines are cold, about 150 GPU seconds.
+- `--dry-run` still runs everything with test tones, no Modal, no cost.
+- Modal app `ai-sound-designer` is deployed in Anthony's workspace `anthony-56415`:
+  `plan_sound` (Claude Opus 5.5), `Foley` and `Music` (L40S), plus `prepare_foley` /
+  `prepare_music`, which download weights on a CPU machine. Weights (18 GB) are in the
+  Modal volume `ai-sound-designer-weights`. Both model repos are pinned to a commit.
 
-## Written but NOT yet run
+## Things learned while getting it running
 
-- `modal_app.py`: the Modal side. `plan_sound` (Claude Opus 5.5 via the `anthropic`
-  Modal secret), `Foley` (HunyuanVideo-Foley XXL on an L40S), `Music` (ACE-Step 1.5
-  turbo on an L40S). Weights cache in the Modal volume `ai-sound-designer-weights`.
-- Expect to debug the two model images on first deploy: package versions for each
-  model were taken from their own requirement files but have not been built.
-- After the first successful build, pin both model repos to the commit that the image
-  build prints (they are cloned at the latest version right now).
+- The Claude key is in the Modal secret **`anthropic-secret`** (not `anthropic`).
+- Modal sign-in from a cloud session: `modal token new` loses its connection while
+  waiting. Use the token flow with short waits and retries instead (create the flow
+  once, poll `TokenFlowWait` with an 8 s timeout). The token is stored in
+  `~/.modal.toml`, which does not survive into a new thread, so a new thread needs a
+  new sign-in link from Anthony (or the keys as environment variables).
+- The cloud environment must allow `input-plane.us-east.modal.com` (added, along with
+  us-west). Modal sends function calls there, not to `api.modal.com`.
+- Modal needs a payment method on the account before it will create GPU functions.
+- Build both model images from one process. Two processes building the same image at
+  once get "terminated due to external shut-down".
+- The effects model returns each clip at its own level (some 30 dB quieter), so every
+  clip is levelled before mixing (`SFX_CLIP_RMS_DB`). The music model started with an
+  8 s near-silent intro, so slow level swings are evened out (`MUSIC_EVEN_OUT`).
 
-## Blocked
+## Not done / known limits
 
-Modal cannot be reached from a cloud session on the `Default` environment. The three
-keys were saved there as "Network secrets", which forces traffic through an
-inspecting proxy that only speaks HTTP/1.1. Modal needs HTTP/2, so every call fails
-with "Connection lost". The keys are also not visible as environment variables.
-
-A separate cloud environment, `ai-sound-designer`, was created to fix this. It lets
-Modal through untouched. It still needs the keys, and the project has to be switched
-to it (see "Needed from Anthony").
+- Only one test video exists, with no speech. Voice ducking has only been tested with
+  test tones on a made-up talking clip. Four more videos are wanted for Phase 2.
+- Nobody has listened to the result yet. Claude cannot hear; only levels, lengths and
+  loudness were checked. Sound quality and sync need Anthony's ears.
+- Modal prices in `soundlib/config.py` are list prices from memory, not re-checked
+  (modal.com is not reachable from the cloud session). The cost shown per run counts
+  only model loading and generation. Machine start-up and the 60 s idle time before a
+  GPU machine shuts down are billed too, so the real figure is higher. Check the
+  Modal usage page for the true number.
 
 ## Needed from Anthony
 
-- [ ] In Project settings > Cloud environment, pick **ai-sound-designer**.
-- [ ] In that environment (gear icon), add these as **Environment variables**, not
-      Network secrets: `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, `HF_TOKEN`.
-- [ ] Then ask Claude to "finish Prompt 1". It has to be a new thread, because a
-      running thread cannot change environment.
-- [x] Modal account with a spending limit.
-- [x] Claude API key saved as the Modal secret `anthropic` (not yet tested).
-- [x] Test video (one provided instead of five; its sound was removed).
+- [ ] Watch `prompt1_output/mitey_vacuum_with_sound.mp4` and say what sounds right
+      and wrong.
+- [ ] Four more test videos (some with talking, some with fast cuts) before Phase 2.
+- [ ] Say "start Prompt 2" when ready.
 - Later (Phase 5): Stripe account.
-
-## Next steps for Claude (in the new thread)
-
-1. Check `env | grep MODAL` and that `modal profile current` connects. Copy the test
-   video into place (it is not in git):
-   `cp /mnt/project-files/mitey_vacuum_short_living_room_silent.mp4 test_videos/`
-2. `python make_sound.py --deploy`, fix any image build problems.
-3. `python make_sound.py --all`. Uploads over about 2 MB go to Modal's storage hosts
-   (`*.r2.cloudflarestorage.com`, `*.amazonaws.com`), which the environment does not
-   allow. The code avoids this by sending small clips and streaming audio back in
-   pieces, so it should not come up. If it does, ask Anthony to allow those hosts.
-4. Fill in the cost table below with real GPU seconds and dollars, check the Modal
-   prices in `soundlib/config.py` against modal.com/pricing, pin the model repos.
-5. Copy `final.mp4`, `music.wav` and `sfx.wav` to the project files for Anthony.
 
 ## Licence check (2026-11-24)
 
@@ -100,3 +90,7 @@ Read each model's own LICENSE and README. Both match CLAUDE.md.
 |------|------|-------------|------|
 | 2026-11-24 | Phase 0 setup | 0 | $0 |
 | 2026-11-24 | Phase 1 code and test-tone runs (no Modal use) | 0 | $0 |
+| 2026-11-24 | Model downloads and image builds (CPU only) | 0 | not measured, cents |
+| 2026-11-24 | Real run 1 on the vacuum video | 216 | $0.18 est. (GPU $0.12 + Claude $0.07) |
+| 2026-11-24 | Real run 2 after level fixes | 147 | $0.14 est. (GPU $0.08 + Claude $0.07) |
+| 2026-11-24 | Two Claude plan tests | 0 | $0.13 |

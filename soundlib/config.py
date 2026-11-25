@@ -23,6 +23,8 @@ FOLEY_STEPS = 50
 FOLEY_GUIDANCE = 4.5
 FOLEY_NEG_PROMPT = "noisy, harsh, music, speech, voice, singing"
 FOLEY_MODEL_SIZE = "xxl"
+SFX_CLIP_RMS_DB = -20.0            # every effects clip is brought to this level first
+SFX_CLIP_MAX_BOOST_DB = 30.0
 
 # --- Music (ACE-Step 1.5) --------------------------------------------------
 MUSIC_MODEL = "acestep-v15-turbo"
@@ -31,6 +33,8 @@ MUSIC_MIN_SECONDS = 10.0           # the model's shortest supported length
 MUSIC_FADE_OUT_SECONDS = 1.5
 MUSIC_BPM_SEARCH = 0.12            # search +/- 12% around Claude's tempo
 MUSIC_BPM_RANGE = (60, 180)
+MUSIC_EVEN_OUT = 0.6                # 0 = leave the music's slow swells alone, 1 = flatten them
+MUSIC_EVEN_OUT_MAX_DB = 12.0
 
 # --- Mix -------------------------------------------------------------------
 TARGET_LUFS = -14.0
