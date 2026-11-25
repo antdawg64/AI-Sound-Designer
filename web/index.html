@@ -3,124 +3,254 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI Sound Designer</title>
-<meta name="description" content="Upload a short video and get it back with sound effects synced to the action and original music.">
+<title>AI Sound Designer: sound effects and music for your video</title>
+<meta name="description" content="Upload a short video and get it back with sound effects synced to the action and original music. Then fine-tune every sound on a timeline.">
+<meta name="theme-color" content="#4c5fe8">
 <style>
   :root {
-    --bg: #f6f5f2; --card: #ffffff; --ink: #1b1b1f; --muted: #66656d; --line: #e2e0da;
-    --accent: #3b5bdb; --accent-ink: #ffffff; --soft: #eef1fd; --bad: #c92a2a; --bad-soft: #fff0f0;
-    --good: #2b8a3e;
+    --bg: #fbfaf8; --card: #ffffff; --ink: #14141a; --muted: #5f5e68; --line: #e6e4de;
+    --accent: #4c5fe8; --accent-2: #8b5cf6; --accent-ink: #ffffff; --soft: #eef0fe;
+    --bad: #c92a2a; --bad-soft: #fff0f0; --good: #2b8a3e; --field: #f6f5f1;
+    --moment: #e8590c; --bg-clip: #0c8599; --music: #7048e8;
+    --glow-1: rgba(76, 95, 232, .16); --glow-2: rgba(139, 92, 246, .14);
+    --shadow: 0 1px 2px rgba(20, 20, 26, .05), 0 12px 40px -12px rgba(20, 20, 26, .18);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #121215; --card: #1c1c21; --ink: #ececf1; --muted: #a09fa8; --line: #2e2e35;
-      --accent: #748ffc; --accent-ink: #0d0d10; --soft: #232842; --bad: #ff8787; --bad-soft: #3a1d1f;
-      --good: #69db7c;
+      --bg: #0c0c10; --card: #16161c; --ink: #f1f1f5; --muted: #a3a2ad; --line: #292932;
+      --accent: #8093ff; --accent-2: #b197fc; --accent-ink: #0b0b10; --soft: #1f2340;
+      --bad: #ff8787; --bad-soft: #3a1d1f; --good: #69db7c; --field: #101015;
+      --moment: #ff922b; --bg-clip: #3bc9db; --music: #9775fa;
+      --glow-1: rgba(128, 147, 255, .16); --glow-2: rgba(177, 151, 252, .12);
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 16px 48px -12px rgba(0, 0, 0, .7);
     }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
-  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
-  .lead { color: var(--muted); margin: 0 0 24px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
-  .drop { display: block; border: 2px dashed var(--line); border-radius: 12px; padding: 28px 16px;
-          text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased;
+         font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; overflow-x: hidden; }
+  .backdrop { position: absolute; inset: 0 0 auto 0; height: 760px; z-index: -1; pointer-events: none;
+              background: radial-gradient(700px 420px at 12% 0%, var(--glow-1), transparent 70%),
+                          radial-gradient(640px 460px at 92% 12%, var(--glow-2), transparent 70%); }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+  a { color: var(--accent); }
+  .hidden { display: none !important; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Top bar */
+  .nav { display: flex; align-items: center; gap: 28px; height: 72px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
+  .mark { width: 32px; height: 32px; flex: none; }
+  .nav .links { display: flex; gap: 26px; margin-left: auto; }
+  .nav .links a { color: var(--muted); text-decoration: none; font-size: 15px; font-weight: 500; }
+  .nav .links a:hover { color: var(--ink); }
+
+  /* Hero */
+  .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); gap: 56px; align-items: start; padding: 44px 0 88px; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--accent);
+             background: var(--soft); border-radius: 99px; padding: 6px 12px; }
+  .eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  h1 { font-size: clamp(38px, 5.2vw, 62px); line-height: 1.04; letter-spacing: -0.035em; margin: 20px 0 18px; font-weight: 750; }
+  h1 em { font-style: normal; background: linear-gradient(100deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { color: var(--muted); font-size: 19px; line-height: 1.55; margin: 0 0 26px; max-width: 520px; }
+  .ticks { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 16px; }
+  .ticks li { display: flex; gap: 10px; align-items: flex-start; }
+  .ticks svg { width: 20px; height: 20px; flex: none; margin-top: 2px; color: var(--accent); }
+  .wave { display: flex; align-items: center; gap: 4px; height: 56px; margin-top: 40px; max-width: 520px; opacity: .9; }
+  .wave span { flex: 1; border-radius: 3px; background: linear-gradient(180deg, var(--accent), var(--accent-2)); height: calc(var(--h) * 1%);
+               animation: pulse 2.4s ease-in-out infinite; animation-delay: calc(var(--i) * -90ms); transform-origin: center; }
+  @keyframes pulse { 0%, 100% { transform: scaleY(.45); opacity: .55; } 50% { transform: scaleY(1); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .wave span { animation: none; } html { scroll-behavior: auto; } }
+
+  /* Cards and the form */
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 26px; box-shadow: var(--shadow); }
+  .card h2 { font-size: 22px; letter-spacing: -0.02em; margin: 0 0 4px; }
+  .card-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 14px; }
+  .drop { display: flex; flex-direction: column; align-items: center; gap: 4px; border: 1.5px dashed var(--line); border-radius: 16px; padding: 26px 16px;
+          text-align: center; cursor: pointer; background: var(--field); transition: border-color .15s, background .15s; }
   .drop:hover, .drop.over { border-color: var(--accent); background: var(--soft); }
-  .drop strong { display: block; font-size: 17px; }
+  .drop .icon { width: 44px; height: 44px; border-radius: 12px; background: var(--soft); color: var(--accent); display: grid; place-items: center; margin-bottom: 6px; }
+  .drop .icon svg { width: 22px; height: 22px; }
+  .drop strong { display: block; font-size: 16px; }
   .drop span { color: var(--muted); font-size: 14px; }
+  .drop.has-file { border-style: solid; border-color: var(--accent); }
   .drop.has-file strong { color: var(--accent); word-break: break-all; }
   input[type=file] { display: none; }
-  label.field { display: block; margin-top: 18px; font-weight: 600; font-size: 15px; }
-  label.field small { font-weight: 400; color: var(--muted); }
-  select, input[type=text] { width: 100%; margin-top: 6px; padding: 10px 12px; font: inherit;
-          color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
-  fieldset.choice { border: 0; padding: 0; margin: 18px 0 0; }
-  fieldset.choice legend { padding: 0; font-weight: 600; font-size: 15px; }
-  fieldset.choice label { display: flex; gap: 10px; align-items: center; margin-top: 8px; padding: 10px 12px;
-          border: 1px solid var(--line); border-radius: 10px; cursor: pointer; font-size: 15px; }
-  fieldset.choice label:has(input:checked) { border-color: var(--accent); background: var(--soft); }
-  fieldset.choice input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
-  .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; font-size: 14px; color: var(--muted); }
-  .check input { margin-top: 4px; width: 18px; height: 18px; flex: none; }
+  .field { display: block; margin: 18px 0 0; padding: 0; border: 0; font-weight: 600; font-size: 14px; min-width: 0; }
+  .field legend { padding: 0; margin-bottom: 8px; }
+  .field small { font-weight: 400; color: var(--muted); }
+  .choice { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
+  .choice legend { float: left; width: 100%; grid-column: 1 / -1; }
+  .choice label { position: relative; cursor: pointer; }
+  .choice input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+  .choice span { display: block; text-align: center; padding: 9px 6px; border-radius: 9px; font-size: 14px; color: var(--muted); transition: background .15s, color .15s; }
+  .choice b { font-weight: 600; }
+  .choice input:checked + span { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+  .choice input:focus-visible + span { outline: 2px solid var(--accent); }
+  .choice-wrap { margin-top: 18px; }
+  .choice-wrap > .legend { font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+  select, input[type=text] { width: 100%; margin-top: 8px; padding: 12px 14px; font: inherit; font-size: 15px; font-weight: 400;
+          color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 12px; }
+  select:focus, input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 16px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+  .check input { margin-top: 2px; width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
   button, .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-          margin-top: 20px; padding: 12px 20px; font: 600 16px/1 inherit; font-family: inherit;
-          border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-ink);
-          cursor: pointer; text-decoration: none; }
-  button[disabled] { opacity: .45; cursor: not-allowed; }
+          margin-top: 20px; padding: 14px 22px; font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1;
+          border: 0; border-radius: 12px; background: linear-gradient(100deg, var(--accent), var(--accent-2)); color: var(--accent-ink);
+          cursor: pointer; text-decoration: none; transition: transform .1s, box-shadow .15s, opacity .15s;
+          box-shadow: 0 6px 18px -6px var(--accent); }
+  button:hover:not([disabled]), .button:hover { transform: translateY(-1px); }
+  button[disabled] { opacity: .4; cursor: not-allowed; box-shadow: none; }
   .wide { width: 100%; }
-  .secondary { background: var(--soft); color: var(--ink); }
-  .notice { margin-top: 16px; padding: 12px 14px; border-radius: 10px; font-size: 14px; }
+  .secondary { background: var(--field); color: var(--ink); box-shadow: none; border: 1px solid var(--line); }
+  .notice { margin-top: 16px; padding: 12px 14px; border-radius: 12px; font-size: 14px; }
   .notice.bad { background: var(--bad-soft); color: var(--bad); }
-  .notice.info { background: var(--soft); }
-  .bar { height: 10px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 14px 0 8px; }
-  .bar div { height: 100%; width: 0; background: var(--accent); transition: width .6s ease; }
-  .steps { list-style: none; padding: 0; margin: 16px 0 0; font-size: 15px; }
-  .steps li { padding: 4px 0; color: var(--muted); }
+  .muted { color: var(--muted); font-size: 14px; }
+  #limits { text-align: center; margin: 12px 0 0; font-size: 13px; }
+
+  /* Progress and result */
+  .solo { max-width: 620px; margin: 28px auto 96px; }
+  .solo.result { max-width: 760px; }
+  .bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 18px 0 8px; }
+  .bar div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .6s ease; }
+  .steps { list-style: none; padding: 0; margin: 18px 0 0; font-size: 15px; }
+  .steps li { padding: 6px 0; color: var(--muted); display: flex; align-items: center; gap: 10px; }
   .steps li.now { color: var(--ink); font-weight: 600; }
   .steps li.done { color: var(--good); }
-  .steps li::before { content: "○"; display: inline-block; width: 22px; }
-  .steps li.now::before { content: "●"; color: var(--accent); }
-  .steps li.done::before { content: "✓"; }
-  video { width: 100%; border-radius: 10px; background: #000; margin-top: 4px; }
-  .downloads { display: grid; gap: 10px; margin-top: 8px; }
-  .downloads .button { margin-top: 0; width: 100%; }
-  .muted { color: var(--muted); font-size: 14px; }
-  footer { margin-top: 28px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .steps li::before { content: ""; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); flex: none; }
+  .steps li.now::before { border-color: var(--accent); border-top-color: transparent; animation: spin .9s linear infinite; }
+  .steps li.done::before { content: "✓"; border: 0; background: var(--good); color: var(--card); font-size: 11px; font-weight: 700; display: grid; place-items: center; width: 18px; height: 18px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  video { width: 100%; border-radius: 14px; background: #000; margin-top: 12px; max-height: 50vh; }
+  .downloads { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 14px; }
+  .downloads .button { margin-top: 0; width: 100%; font-size: 15px; padding: 13px 14px; }
+  .downloads #fine-tune, .downloads #dl-video { grid-column: 1 / -1; }
+  .fine-note { grid-column: 1 / -1; margin: -2px 0 4px; text-align: center; }
+
+  /* Sections under the hero */
+  section.band { padding: 80px 0; border-top: 1px solid var(--line); }
+  .band h2 { font-size: clamp(28px, 3.4vw, 40px); letter-spacing: -0.03em; line-height: 1.1; margin: 0 0 12px; }
+  .band .sub { color: var(--muted); font-size: 18px; margin: 0 0 40px; max-width: 620px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 24px; }
+  .tile .num { width: 34px; height: 34px; border-radius: 10px; background: var(--soft); color: var(--accent); font-weight: 700; display: grid; place-items: center; margin-bottom: 16px; }
+  .tile .ico { width: 40px; height: 40px; border-radius: 11px; background: var(--soft); color: var(--accent); display: grid; place-items: center; margin-bottom: 16px; }
+  .tile .ico svg { width: 21px; height: 21px; }
+  .tile h3 { font-size: 17px; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .tile p { margin: 0; color: var(--muted); font-size: 15px; }
+  .split { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 56px; align-items: center; }
+  .split .sub { margin-bottom: 20px; }
+  .mock { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); }
+  .mock .row { position: relative; height: 34px; border-radius: 8px; background: var(--field); margin-top: 8px; }
+  .mock .row:first-child { margin-top: 0; }
+  .mock .row.tall { height: 46px; }
+  .mock .c { position: absolute; top: 4px; bottom: 4px; border-radius: 6px; border: 1.5px solid var(--c); background: color-mix(in srgb, var(--c) 16%, transparent);
+             font-size: 11px; font-weight: 600; padding: 3px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+  .mock .head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12px; color: var(--muted); }
+  .mock .head b { width: 26px; height: 26px; border-radius: 8px; background: var(--soft); color: var(--accent); display: grid; place-items: center; font-size: 11px; }
+  .mock .ph { position: absolute; top: 44px; bottom: 16px; left: 38%; width: 2px; background: #e03131; border-radius: 2px; }
+  .mock .body { position: relative; }
+  .cta { text-align: center; }
+  .cta .sub { margin: 0 auto 8px; }
+  footer { border-top: 1px solid var(--line); padding: 32px 0 48px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+  footer .brand { font-size: 15px; margin-bottom: 12px; }
+  footer .mark { width: 24px; height: 24px; }
   footer a { color: inherit; }
-  .hidden { display: none !important; }
-  h2 { font-size: 20px; margin: 0 0 4px; }
+
+  body:not([data-view=upload]) .landing { display: none; }
+  body:not([data-view=upload]) .backdrop { height: 520px; }
+
+  @media (max-width: 920px) {
+    .hero { grid-template-columns: 1fr; gap: 32px; padding: 20px 0 56px; }
+    .grid3, .grid4 { grid-template-columns: 1fr 1fr; }
+    .split { grid-template-columns: 1fr; gap: 28px; }
+    .nav .links { display: none; }
+    .wave { display: none; }
+    section.band { padding: 56px 0; }
+  }
+  @media (max-width: 560px) {
+    .wrap { padding: 0 16px; }
+    .grid3, .grid4, .downloads { grid-template-columns: 1fr; }
+    .card { padding: 20px; border-radius: 18px; }
+    .lead { font-size: 17px; }
+  }
 </style>
 </head>
-<body>
-<main>
-  <h1>AI Sound Designer</h1>
-  <p class="lead">Upload a short video. You'll get it back with sound effects that follow the action and original background music, plus the music and the effects as separate files.</p>
+<body data-view="loading">
+<div class="backdrop"></div>
+<div class="wrap">
+  <nav class="nav">
+    <a class="brand" href="/"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4c5fe8"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg)"/><g fill="#fff"><rect x="7" y="13" width="3" height="6" rx="1.5"/><rect x="12" y="8" width="3" height="16" rx="1.5"/><rect x="17" y="11" width="3" height="10" rx="1.5"/><rect x="22" y="14" width="3" height="4" rx="1.5"/></g></svg><span>AI Sound Designer</span></a>
+    <div class="links landing">
+      <a href="#how">How it works</a>
+      <a href="#get">What you get</a>
+      <a href="#editor">The editor</a>
+    </div>
+  </nav>
 
-  <!-- Upload -->
-  <section id="upload" class="card hidden">
-    <form id="form">
-      <label class="drop" id="drop">
-        <input type="file" id="file" accept="video/*,.mp4,.mov,.m4v,.mkv,.webm">
-        <strong id="drop-title">Choose a video</strong>
-        <span id="drop-hint">or drag it here</span>
-      </label>
+  <!-- Front page: pitch on the left, upload on the right -->
+  <div class="hero" id="hero">
+    <div class="pitch landing">
+      <span class="eyebrow"><i></i>Sound effects and music, made for your video</span>
+      <h1>Give your video the sound it <em>deserves</em>.</h1>
+      <p class="lead">Upload a clip. Our AI watches it, adds sound effects that land on the action and composes original music to match. Then you fine-tune every sound yourself.</p>
+      <ul class="ticks">
+        <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5l3.5 3.5 7.5-8"/></svg><span>Effects synced to what happens on screen</span></li>
+        <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5l3.5 3.5 7.5-8"/></svg><span>Original music, scored to your story</span></li>
+        <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5l3.5 3.5 7.5-8"/></svg><span>A timeline editor to move, mute or remove any sound</span></li>
+      </ul>
+      <div class="wave" aria-hidden="true"><span style="--h:30;--i:0"></span><span style="--h:55;--i:1"></span><span style="--h:80;--i:2"></span><span style="--h:45;--i:3"></span><span style="--h:95;--i:4"></span><span style="--h:60;--i:5"></span><span style="--h:35;--i:6"></span><span style="--h:70;--i:7"></span><span style="--h:100;--i:8"></span><span style="--h:50;--i:9"></span><span style="--h:75;--i:10"></span><span style="--h:40;--i:11"></span><span style="--h:88;--i:12"></span><span style="--h:58;--i:13"></span><span style="--h:32;--i:14"></span><span style="--h:66;--i:15"></span><span style="--h:92;--i:16"></span><span style="--h:48;--i:17"></span><span style="--h:72;--i:18"></span><span style="--h:38;--i:19"></span><span style="--h:84;--i:20"></span><span style="--h:54;--i:21"></span><span style="--h:28;--i:22"></span><span style="--h:62;--i:23"></span><span style="--h:96;--i:24"></span><span style="--h:44;--i:25"></span><span style="--h:78;--i:26"></span><span style="--h:36;--i:27"></span><span style="--h:68;--i:28"></span><span style="--h:90;--i:29"></span><span style="--h:52;--i:30"></span><span style="--h:34;--i:31"></span></div>
+    </div>
 
-      <fieldset class="field choice">
-        <legend>What sound do you want?</legend>
-        <label><input type="radio" name="parts" value="both" checked> <span><b>Effects and music</b></span></label>
-        <label><input type="radio" name="parts" value="effects"> <span><b>Sound effects only</b></span></label>
-        <label><input type="radio" name="parts" value="music"> <span><b>Music only</b></span></label>
-      </fieldset>
+    <!-- Upload -->
+    <section id="upload" class="card hidden">
+      <p class="card-title">Add sound to your video</p>
+      <form id="form">
+        <label class="drop" id="drop">
+          <input type="file" id="file" accept="video/*,.mp4,.mov,.m4v,.mkv,.webm">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg></span>
+          <strong id="drop-title">Choose a video</strong>
+          <span id="drop-hint">or drag it here</span>
+        </label>
 
-      <label class="field" for="vibe" id="vibe-field">Feeling for the music <small>(optional)</small>
-        <input type="text" id="vibe" maxlength="120" placeholder="for example: tense, playful, epic, calm">
-      </label>
+        <div class="choice-wrap">
+          <div class="legend" id="parts-legend">What sound do you want?</div>
+          <div class="choice" role="radiogroup" aria-labelledby="parts-legend">
+            <label><input type="radio" name="parts" value="both" checked> <span><b>Effects + music</b></span></label>
+            <label><input type="radio" name="parts" value="effects"> <span><b>Effects only</b></span></label>
+            <label><input type="radio" name="parts" value="music"> <span><b>Music only</b></span></label>
+          </div>
+        </div>
 
-      <label class="field" for="country">Where are you right now?
-        <select id="country" required><option value="">Choose your country</option></select>
-      </label>
+        <label class="field" for="vibe" id="vibe-field">Feeling for the music <small>(optional)</small>
+          <input type="text" id="vibe" maxlength="120" placeholder="for example: tense, playful, epic, calm">
+        </label>
 
-      <label class="check"><input type="checkbox" id="agree">
-        <span>I'm not in the European Union, the United Kingdom or South Korea, and I won't use the result there. (The sound effects model isn't licensed in those places.)</span>
-      </label>
+        <label class="field" for="country">Where are you right now?
+          <select id="country" required><option value="">Choose your country</option></select>
+        </label>
 
-      <div id="form-error" class="notice bad hidden"></div>
-      <button class="wide" id="go" type="submit" disabled>Add sound</button>
-      <p class="muted" id="limits"></p>
-    </form>
-  </section>
+        <label class="check"><input type="checkbox" id="agree">
+          <span>I'm not in the European Union, the United Kingdom or South Korea, and I won't use the result there. (The sound effects model isn't licensed in those places.)</span>
+        </label>
+
+        <div id="form-error" class="notice bad hidden"></div>
+        <button class="wide" id="go" type="submit" disabled>Add sound</button>
+        <p class="muted" id="limits"></p>
+      </form>
+    </section>
+  </div>
 
   <!-- Uploading -->
-  <section id="sending" class="card hidden">
+  <section id="sending" class="card solo hidden">
     <h2>Uploading your video</h2>
     <div class="bar"><div id="send-bar"></div></div>
     <p class="muted" id="send-text">Starting…</p>
   </section>
 
   <!-- Working -->
-  <section id="working" class="card hidden">
+  <section id="working" class="card solo hidden">
     <h2 id="work-title">Making your sound</h2>
     <p class="muted" id="work-sub">This usually takes 3 to 6 minutes. You can leave this page open, or bookmark it and come back.</p>
     <div class="bar"><div id="work-bar"></div></div>
@@ -128,47 +258,102 @@
   </section>
 
   <!-- Done -->
-  <section id="done" class="card hidden">
+  <section id="done" class="card solo result hidden">
     <h2>Your video is ready</h2>
     <p class="muted" id="done-sub"></p>
     <video id="player" controls playsinline preload="metadata"></video>
     <div class="downloads">
       <a class="button hidden" id="fine-tune">Fine-tune the sound</a>
       <a class="button" id="dl-video" download>Download video with sound</a>
-      <a class="button secondary" id="dl-music" download>Download music only (WAV)</a>
-      <a class="button secondary" id="dl-sfx" download>Download sound effects only (WAV)</a>
+      <a class="button secondary" id="dl-music" download>Music only (WAV)</a>
+      <a class="button secondary" id="dl-sfx" download>Sound effects only (WAV)</a>
     </div>
     <p class="muted" id="keep-note"></p>
     <a class="button secondary wide" href="/">Do another video</a>
   </section>
 
   <!-- Failed / not found -->
-  <section id="failed" class="card hidden">
+  <section id="failed" class="card solo hidden">
     <h2>Something went wrong</h2>
     <p id="fail-text" class="muted"></p>
     <a class="button wide" href="/">Try again</a>
   </section>
 
   <!-- Blocked country -->
-  <section id="blocked" class="card hidden">
+  <section id="blocked" class="card solo hidden">
     <h2>Not available where you are</h2>
     <p class="muted">Sorry, this service isn't available in the European Union, the United Kingdom or South Korea, because the sound effects model's licence doesn't cover those places.</p>
   </section>
+</div>
 
-  <footer>
-    Sound effects made with HunyuanVideo-Foley, Powered by Tencent Hunyuan (Tencent Hunyuan Community License; not available in the EU, UK or South Korea).
-    Music made with ACE-Step 1.5 (MIT licence). The sound plan is made by Claude, from Anthropic.
-    Videos and results are deleted after <span id="keep-days">7</span> days.
-    <a href="https://db-ip.com" target="_blank" rel="noopener">IP Geolocation by DB-IP</a>.
-  </footer>
-</main>
+<div class="landing">
+  <section class="band" id="how"><div class="wrap">
+    <h2>From silent clip to finished sound in three steps</h2>
+    <p class="sub">No sound library to dig through and no software to learn.</p>
+    <div class="grid3">
+      <div class="tile"><div class="num">1</div><h3>Upload your video</h3><p>Pick a short clip and tell us the feeling you want for the music, if you have one in mind.</p></div>
+      <div class="tile"><div class="num">2</div><h3>The AI does the sound design</h3><p>It studies every shot, places effects on the moments that need them and scores original music. It takes a few minutes.</p></div>
+      <div class="tile"><div class="num">3</div><h3>Fine-tune and download</h3><p>Adjust anything on the timeline, then download the finished video, plus the music and effects on their own.</p></div>
+    </div>
+  </div></section>
+
+  <section class="band" id="get"><div class="wrap">
+    <h2>Everything your video needs to be heard</h2>
+    <p class="sub">One upload gives you a full soundtrack, already mixed.</p>
+    <div class="grid4">
+      <div class="tile"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h3l3-7 4 14 3-7h3"/></svg></div><h3>Synced sound effects</h3><p>Footsteps, impacts, motors and room sound, timed to what is on screen.</p></div>
+      <div class="tile"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg></div><h3>Original music</h3><p>Composed for your clip, following its mood from the first shot to the last.</p></div>
+      <div class="tile"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></div><h3>A balanced mix</h3><p>Effects and music are levelled together, and kept under any voice in your video.</p></div>
+      <div class="tile"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg></div><h3>Separate files</h3><p>Download the music and the effects as their own files for your editing app.</p></div>
+    </div>
+  </div></section>
+
+  <section class="band" id="editor"><div class="wrap split">
+    <div>
+      <h2>You have the final say</h2>
+      <p class="sub">The AI gets you most of the way. The editor lets your ears finish the job.</p>
+      <ul class="ticks">
+        <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5l3.5 3.5 7.5-8"/></svg><span>Drag a sound to change when it happens</span></li>
+        <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5l3.5 3.5 7.5-8"/></svg><span>Mute, remove or turn up any single effect</span></li>
+        <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5l3.5 3.5 7.5-8"/></svg><span>Balance effects against music and hear it instantly</span></li>
+      </ul>
+    </div>
+    <div class="mock" aria-hidden="true">
+      <div class="head"><b>▶</b><span>0:08.4 / 0:30.0</span></div>
+      <div class="body">
+        <div class="row"><span class="c" style="--c:var(--moment);left:12%;width:13%">door slam</span><span class="c" style="--c:var(--moment);left:46%;width:11%">glass clink</span><span class="c" style="--c:var(--moment);left:74%;width:14%">switch click</span></div>
+        <div class="row tall"><span class="c" style="--c:var(--bg-clip);left:1%;width:36%">footsteps on wood, room tone</span><span class="c" style="--c:var(--bg-clip);left:39%;width:30%">kettle, kitchen hum</span><span class="c" style="--c:var(--bg-clip);left:71%;width:28%">street through window</span></div>
+        <div class="row tall"><span class="c" style="--c:var(--music);left:1%;width:98%">Music: warm piano and strings, hopeful</span></div>
+        <span class="ph" style="top:-4px;bottom:-4px"></span>
+      </div>
+    </div>
+  </div></section>
+
+  <section class="band cta"><div class="wrap">
+    <h2>Ready to hear your video?</h2>
+    <p class="sub">It takes a few minutes, and you can adjust everything afterwards.</p>
+    <a class="button" href="#hero">Add sound to a video</a>
+  </div></section>
+</div>
+
+<footer><div class="wrap">
+  <div class="brand"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4c5fe8"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg2)"/><g fill="#fff"><rect x="7" y="13" width="3" height="6" rx="1.5"/><rect x="12" y="8" width="3" height="16" rx="1.5"/><rect x="17" y="11" width="3" height="10" rx="1.5"/><rect x="22" y="14" width="3" height="4" rx="1.5"/></g></svg><span>AI Sound Designer</span></div>
+  Sound effects made with HunyuanVideo-Foley, Powered by Tencent Hunyuan (Tencent Hunyuan Community License; not available in the EU, UK or South Korea).
+  Music made with ACE-Step 1.5 (MIT licence). The sound plan is made by Claude, from Anthropic.
+  Videos and results are deleted after <span id="keep-days">7</span> days.
+  <a href="https://db-ip.com" target="_blank" rel="noopener">IP Geolocation by DB-IP</a>.
+</div></footer>
 
 <script>
 const $ = id => document.getElementById(id);
 const STEPS = ["Reading the video", "Planning the sound", "Making the sound effects",
                "Composing the music", "Mixing", "Checking the result"];
-const show = id => ["upload", "sending", "working", "done", "failed", "blocked"]
-  .forEach(s => $(s).classList.toggle("hidden", s !== id));
+const show = id => {
+  ["upload", "sending", "working", "done", "failed", "blocked"].forEach(s => $(s).classList.toggle("hidden", s !== id));
+  document.body.dataset.view = id;   // the pitch and the sections below only show with the upload form
+  $("hero").classList.toggle("hidden", id !== "upload");
+  if (id !== "upload") window.scrollTo(0, 0);
+};
 let cfg = null, file = null;
 
 // Every country, named in the visitor's own language.
