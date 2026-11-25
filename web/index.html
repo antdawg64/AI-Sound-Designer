@@ -44,6 +44,14 @@
   .nav .links { display: flex; gap: 26px; margin-left: auto; }
   .nav .links a { color: var(--muted); text-decoration: none; font-size: 15px; font-weight: 500; }
   .nav .links a:hover { color: var(--ink); }
+  .nav .account { display: flex; align-items: center; gap: 14px; font-size: 14px; color: var(--muted); min-width: 0; }
+  .nav .links + .account { margin-left: 0; }
+  .nav .account .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+  .nav .account a.signin { display: inline-block; padding: 9px 18px; border-radius: 999px; border: 1px solid var(--line, #d9dbe3);
+    color: var(--ink); background: transparent; text-decoration: none; font-weight: 600; font-size: 14px; }
+  .nav .account a.signin:hover { border-color: var(--ink); }
+  .nav .account a.out { color: var(--muted); }
+  body:not([data-view="upload"]) .nav .account { margin-left: auto; }
 
   /* Hero */
   .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); gap: 56px; align-items: start; padding: 44px 0 88px; }
@@ -167,6 +175,8 @@
     .grid3, .grid4 { grid-template-columns: 1fr 1fr; }
     .split { grid-template-columns: 1fr; gap: 28px; }
     .nav .links { display: none; }
+    .nav .account { margin-left: auto; }
+    .nav .account .who { display: none; }
     .wave { display: none; }
     section.band { padding: 56px 0; }
   }
@@ -188,6 +198,7 @@
       <a href="#get">What you get</a>
       <a href="#editor">The editor</a>
     </div>
+    <div class="account" id="account"></div>
   </nav>
 
   <!-- Front page: pitch on the left, upload on the right -->
@@ -426,9 +437,60 @@ const parts = () => document.querySelector("input[name=parts]:checked").value;
 document.querySelectorAll("input[name=parts]").forEach(r => r.addEventListener("change", () =>
   $("vibe-field").classList.toggle("hidden", parts() === "effects")));
 
+// --- Signing in. The page is open to everyone; adding sound needs an account. A video
+// chosen before signing in is kept in this browser and sent as soon as they are back.
+let me = null;
+function drawAccount() {
+  const box = $("account"); box.textContent = "";
+  if (!me || me.open) return;
+  if (me.signed_in) {
+    if (me.email) { const w = document.createElement("span"); w.className = "who"; w.textContent = me.email; box.appendChild(w); }
+    const a = document.createElement("a"); a.className = "out"; a.href = "/logout"; a.textContent = "Sign out"; box.appendChild(a);
+  } else {
+    const a = document.createElement("a"); a.className = "signin"; a.href = me.login_url || "/login"; a.textContent = "Sign in"; box.appendChild(a);
+  }
+}
+function shelf(mode, work) {
+  return new Promise(done => {
+    let open;
+    try { open = indexedDB.open("ai-sound-designer", 1); } catch (err) { return done(null); }
+    open.onupgradeneeded = () => open.result.createObjectStore("waiting");
+    open.onerror = () => done(null);
+    open.onsuccess = () => {
+      try {
+        const tx = open.result.transaction("waiting", mode); const request = work(tx.objectStore("waiting"));
+        tx.oncomplete = () => done(request ? request.result : null);
+        tx.onerror = tx.onabort = () => done(null);
+      } catch (err) { done(null); }
+    };
+  });
+}
+async function signInFirst() {
+  await shelf("readwrite", s => { s.put({ file, name: file.name, country: $("country").value, parts: parts(),
+    vibe: $("vibe").value, at: Date.now() }, "video"); });
+  location.href = (me && me.login_url) || "/login";
+}
+async function takeWaiting() {
+  const kept = await shelf("readonly", s => s.get("video"));
+  if (!kept || !kept.file || Date.now() - kept.at > 2 * 3600 * 1000) { if (kept) shelf("readwrite", s => { s.delete("video"); }); return false; }
+  if (me && !me.signed_in) return false;            // not signed in yet: keep it for when they are
+  await shelf("readwrite", s => { s.delete("video"); });
+  pick(kept.file instanceof File ? kept.file : new File([kept.file], kept.name || "video.mp4"));
+  if (!file) return false;
+  if ([...$("country").options].some(o => o.value === kept.country)) $("country").value = kept.country;
+  const radio = document.querySelector(`input[name=parts][value="${kept.parts}"]`);
+  if (radio) { radio.checked = true; radio.dispatchEvent(new Event("change")); }
+  $("vibe").value = kept.vibe || ""; $("agree").checked = true; ready();
+  return !$("go").disabled;
+}
+
 $("form").addEventListener("submit", e => {
   e.preventDefault();
   if ($("go").disabled) return;
+  if (me && !me.signed_in) {
+    $("go").disabled = true; $("go").textContent = "Taking you to sign in…";
+    return signInFirst();
+  }
   const data = new FormData();
   data.append("video", file);
   data.append("country", $("country").value);
@@ -449,6 +511,7 @@ $("form").addEventListener("submit", e => {
     let body = {};
     try { body = JSON.parse(xhr.responseText); } catch (err) {}
     if (xhr.status === 200 && body.id) { history.pushState({}, "", "/j/" + body.id); watch(body.id); }
+    else if (xhr.status === 401) { me = Object.assign(me || {}, { signed_in: false }); signInFirst(); }
     else { show("upload"); error(body.detail || "The upload didn't work. Please try again.", true); }
   };
   xhr.onerror = () => { show("upload"); error("The upload was interrupted. Please check your connection and try again.", true); };
@@ -514,6 +577,8 @@ function finished(id, job) {
 
 async function start() {
   try { cfg = await (await fetch("/api/config", { cache: "no-store" })).json(); } catch (err) { cfg = null; }
+  try { me = await (await plainFetch("/api/me", { cache: "no-store" })).json(); } catch (err) { me = null; }
+  drawAccount();
   const m = location.pathname.match(/^\/j\/([A-Za-z0-9]+)/);
   if (m) return watch(m[1]);
   if (cfg && cfg.you_are_blocked) return show("blocked");
@@ -525,6 +590,7 @@ async function start() {
   }
   show("upload");
   ready();
+  if (await takeWaiting()) $("form").requestSubmit();
 }
 // Menu links scroll to their section. (They must not change the address: going back to a
 // job page reloads, and a changed address would look like that.)

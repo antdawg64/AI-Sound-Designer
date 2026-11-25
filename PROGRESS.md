@@ -615,3 +615,16 @@ scratch" and "Round 12 version". Copy:
 - If the kept sound has no talking, the new music or effects sit 6 dB under it; with
   talking they sit under the voice as before and the music dips under the talking.
 - Tested free with test tones on the vacuum video (music only and effects only).
+
+## Open front page, personal accounts (Nov 25, 2026)
+
+- Anthony's change: the front page shows to everyone with a "Sign in" button top right.
+  Sign-in is asked only when someone presses "Add sound" while signed out; nothing is
+  generated before that. The chosen video waits in their browser and is sent
+  automatically when they come back signed in.
+- Accounts are on (settings `web_login_url`, `web_supabase_url`, `web_supabase_anon_key`);
+  the shared password no longer opens the site. The sign-in page is the Lovable one;
+  people who are not approved see its waiting-list screen.
+- Job pages, the editor and every other API call still need a signed-in account.
+- The Modal secret `site-password` must stay: it signs the session cookies.
+

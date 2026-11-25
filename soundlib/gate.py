@@ -13,10 +13,13 @@
    The shared password is no longer accepted in this mode.
 
 In both modes:
-  - pages (/, /j/..., /edit/...) send signed-out visitors to the sign-in page
-  - API calls (/api/...) answer 401
+  - the front page is open to everyone (PUBLIC below); it shows a "Sign in" button and
+    asks for sign-in when someone submits a video
+  - other pages (/j/..., /edit/...) send signed-out visitors to the sign-in page
+  - other API calls (/api/..., so also the upload) answer 401
+  - GET /api/me tells the page who is signed in and where to sign in
   - a right answer sets a signed, HttpOnly session cookie and goes to `/`
-  - GET /logout signs out
+  - GET /logout signs out and goes back to the front page
 
 The sign-in page is the built-in web/login.html, or web_login_url when set. With
 neither a password nor accounts, the site is open (used for local testing). Cookies are
@@ -35,6 +38,7 @@ from pathlib import Path
 COOKIE = "asd_session"
 PASSWORD_KEEP_SECONDS = 30 * 24 * 3600
 ACCOUNT_KEEP_SECONDS = 7 * 24 * 3600     # short, so taking away someone's access bites soon
+PUBLIC = ("/", "/api/config", "/api/me", "/favicon.ico")   # what signed-out visitors may load
 
 
 def session_token(password: str) -> str:
@@ -88,6 +92,10 @@ def attach(api, password: str, login_url: str = "", web_folder: Path | None = No
     if not password:
         if accounts:
             raise RuntimeError("Accounts need the SITE_PASSWORD secret too: it signs the cookies.")
+
+        @api.get("/api/me")
+        def me_open():
+            return {"signed_in": True, "email": "", "login_url": "", "open": True}
         return
     from fastapi import Form, Request
     from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -111,7 +119,7 @@ def attach(api, password: str, login_url: str = "", web_folder: Path | None = No
     async def gate(request: Request, call_next):
         path = request.url.path
         person = who(request)
-        if path in ("/login", "/logout") or person is not None:
+        if path in ("/login", "/logout") or path in PUBLIC or person is not None:
             request.state.person = person or {}
             return await call_next(request)
         if path.startswith("/api/"):
@@ -119,6 +127,14 @@ def attach(api, password: str, login_url: str = "", web_folder: Path | None = No
         if external:
             return RedirectResponse(external, status_code=302)
         return RedirectResponse(f"/login?next={path}" if path != "/" else "/login", status_code=302)
+
+    @api.get("/api/me")
+    def me(request: Request):
+        person = who(request)
+        reply = JSONResponse({"signed_in": person is not None, "email": (person or {}).get("email", ""),
+                              "login_url": login_at, "open": False})
+        reply.headers["Cache-Control"] = "no-store"
+        return reply
 
     @api.get("/login", response_class=HTMLResponse)
     def login_page(request: Request):
@@ -148,7 +164,6 @@ def attach(api, password: str, login_url: str = "", web_folder: Path | None = No
 
     @api.get("/logout")
     def logout():
-        reply = RedirectResponse(external + ("&" if "?" in external else "?") + "signedout=1" if external else "/login",
-                                 status_code=302)
+        reply = RedirectResponse("/", status_code=302)
         reply.delete_cookie(COOKIE)
         return reply

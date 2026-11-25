@@ -28,13 +28,13 @@ def _site(**options):
 
 def test_shared_password():
     c = _site()
-    assert c.get("/").headers["location"] == "/login"
+    assert c.get("/").status_code == 200 and c.get("/api/me").json()["signed_in"] is False
     assert c.get("/edit/abc").headers["location"] == "/login?next=/edit/abc"
     assert c.get("/api/x").status_code == 401 and c.get("/login").status_code == 200
     assert c.post("/login", data={"password": "nope"}).headers["location"] == "/login?error=1"
     assert c.post("/login", data={"password": "secret-word", "next": "//evil.com"}).headers["location"] == "/"
     assert c.get("/").status_code == 200 and c.get("/api/x").status_code == 200
-    assert c.get("/logout").headers["location"] == "/login"
+    assert c.get("/logout").headers["location"] == "/"
 
 
 def test_accounts():
@@ -42,15 +42,16 @@ def test_accounts():
     options = dict(login_url="https://signin.example", supabase_url="https://x.supabase.co",
                    supabase_anon_key="anon", check=lambda url, key, token: answers.get(token, ("error", {})))
     c = _site(**options)
-    assert c.get("/").headers["location"] == "https://signin.example"
+    assert c.get("/").status_code == 200 and c.get("/edit/abc").headers["location"] == "https://signin.example"
+    assert c.get("/api/me").json() == {"signed_in": False, "email": "", "login_url": "https://signin.example", "open": False}
     assert c.get("/api/x").status_code == 401
     assert c.post("/login", data={"password": "secret-word"}).headers["location"] == "https://signin.example?error=1"
     assert c.post("/login", data={"token": "waiting"}).headers["location"] == "https://signin.example?waitlist=1"
     assert c.post("/login", data={"token": "bad"}).headers["location"] == "https://signin.example?error=1"
     assert c.get("/api/x").status_code == 401
     assert c.post("/login", data={"token": "good"}).headers["location"] == "/"
-    assert c.get("/").status_code == 200 and c.get("/api/x").status_code == 200
+    assert c.get("/api/me").json()["email"] == "a@b.c" and c.get("/api/x").status_code == 200
     forged = _site(**options)
     forged.cookies.set(gate.COOKIE, gate.session_token("secret-word"))   # the old shared cookie
     assert forged.get("/api/x").status_code == 401
-    assert c.get("/logout").headers["location"] == "https://signin.example?signedout=1"
+    assert c.get("/logout").headers["location"] == "/"
