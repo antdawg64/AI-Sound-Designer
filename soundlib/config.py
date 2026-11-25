@@ -42,8 +42,8 @@ TARGET_TRUE_PEAK_DB = -1.0
 ENCODE_PEAK_MARGIN_DB = 0.8        # AAC encoding can raise peaks slightly
 VOICE_LUFS = -16.0
 SFX_LUFS = -21.0                   # effects sit under the voice
-MUSIC_LUFS = -23.0
-MUSIC_LUFS_NO_VOICE = -20.0        # a bit more music when nobody speaks
+MUSIC_LUFS = -27.0                 # music sits well behind the effects (Anthony: was too loud)
+MUSIC_LUFS_NO_VOICE = -26.0        # 8 dB under the effects when nobody speaks
 SFX_LUFS_NO_VOICE = -18.0
 LOUDNESS_DB = {"quiet": -6.0, "medium": 0.0, "loud": 4.0}
 DUCK = "threshold=0.02:ratio=6:attack=15:release=450:makeup=1"

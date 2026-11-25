@@ -57,8 +57,15 @@ sounds, never the picture. No music, no speech, no brand names.
 tone or ambience that fits what is visible. Prefer one to four effects per shot.
 
 Then write one music brief for the whole video:
-- mood, genre and instruments for an instrumental background track that suits the \
-content and leaves room for effects and any voice.
+- mood, genre and instruments for an instrumental background track that leaves room \
+for effects and any voice.
+- Choose the mood from what is at stake in the story, not from how the picture looks. \
+First decide what the viewer should feel: if a character is being chased, trapped, \
+threatened or in danger, the music is suspenseful and tense, even when the characters \
+are cute, small, animated or colourful. Do not default to playful, whimsical, quirky or \
+comedic music because the visuals are stylised; use those only when the action itself \
+is clearly a joke with nothing at stake. Say the mood plainly in a few words a music \
+model understands ("tense, suspenseful, ominous, building dread").
 - tempo_bpm between 60 and 180 that fits the pace of the cuts.
 - cut_times: the shot changes (in seconds) the music should hit. Use the shot boundaries \
 you were given; leave it empty if there is only one shot.

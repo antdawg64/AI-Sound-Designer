@@ -42,6 +42,16 @@ Phase 2.
   clip is levelled before mixing (`SFX_CLIP_RMS_DB`). The music model started with an
   8 s near-silent intro, so slow level swings are evened out (`MUSIC_EVEN_OUT`).
 
+## Anthony's feedback on the first result (2026-11-24)
+
+Effects mostly match and mostly land on time, "but not everything" (no specifics yet).
+Music was wrong (whimsical; it should have been suspenseful) and too loud. Fixed and
+rerun: the planner now picks the mood from what is at stake in the story, not from how
+the picture looks, and the music sits 8 dB under the effects (`MUSIC_LUFS_NO_VOICE`
+-26). Run 3 gave a "cinematic orchestral thriller score, tense, suspenseful". Output:
+`/mnt/project-files/prompt1_output/mitey_vacuum_with_sound_v2.mp4` (plus `music_v2.wav`,
+`sfx_v2.wav`). Anthony has not heard v2 yet.
+
 ## Not done / known limits
 
 - Only one test video exists, with no speech. Voice ducking has only been tested with
@@ -94,3 +104,4 @@ Read each model's own LICENSE and README. Both match CLAUDE.md.
 | 2026-11-24 | Real run 1 on the vacuum video | 216 | $0.18 est. (GPU $0.12 + Claude $0.07) |
 | 2026-11-24 | Real run 2 after level fixes | 147 | $0.14 est. (GPU $0.08 + Claude $0.07) |
 | 2026-11-24 | Two Claude plan tests | 0 | $0.13 |
+| 2026-11-24 | Real run 3 after Anthony's feedback | 161 | $0.15 est. |
