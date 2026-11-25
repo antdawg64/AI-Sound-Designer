@@ -4,11 +4,44 @@ _Last updated: 2026-11-24_
 
 ## Where things stand
 
-Phase 1 (the one-command prototype) is **done and working for real**, as of
-2026-11-24. `python make_sound.py video.mp4` plans the sound with Claude, generates
-synced effects with HunyuanVideo-Foley and music with ACE-Step 1.5 on Modal, mixes
-them and checks the result. Waiting for Anthony to listen and say whether to start
-Phase 2.
+Phase 1 (the one-command prototype) is done. Phase 2 (quality tuning) is **built and
+run on the vacuum video**, as of 2026-11-25. It is waiting for Anthony to rate the
+variants on the rating page; then Claude runs `python tune.py --apply` to make the
+winners the new defaults. Do not start Phase 3 until Anthony asks.
+
+## Phase 2: quality tuning (2026-11-25)
+
+- **`settings.json`** now holds every setting (effect prompt style, guidance, steps,
+  seed, music prompt template, tempo rule, mix levels and the rest).
+  `soundlib/config.py` only loads it. The cloud side gets a copy on every deploy.
+- **`python tune.py`** runs the current settings plus each variant in `variants.json`
+  (each changes ONE setting) on every video in `test_videos/`, and builds the rating
+  page in `tuning/` (`index.html`, small preview videos in `tuning/media/`).
+- **`python tune.py --serve`** opens the page at http://localhost:8765 and saves
+  ratings to `ratings.csv`. The same page is also published as a private claude.ai page
+  for Anthony, where ratings save to the page's own store (collection `ratings`); Claude
+  reads them back and writes `ratings.csv`.
+- **`python tune.py --apply`** reads `ratings.csv`. A variant wins if its average score
+  beats "Current settings" on the same videos. Winners are written to `settings.json`
+  and logged at the bottom of this file.
+- **`python make_sound.py video.mp4 --versions`** makes three takes (different seeds
+  and music twists, listed under `version_takes` in `settings.json`).
+  `--vibe suspenseful` tells the music what feeling to go for.
+- **`cache/`** remembers every plan, effects clip and music track, so a variant only
+  pays for what it changes. Mix-level variants are free.
+- New settings added for tuning: `sfx_prompt_style` (detailed / main / short),
+  `foley_group_seconds` (join quick shots into longer effects clips),
+  `music_prompt_template`, `music_tempo_rule` (match_cuts / as_planned / half_time).
+
+The 6 starting variants, chosen from Anthony's notes on the Phase 1 result (effects
+mostly right, timing mostly right, music was the wrong mood and too loud):
+
+1. Music further back: 4 dB quieter again.
+2. Music allowed to build: stop flattening the music's swells.
+3. Sparser music: ask for a thin underscore instead of a full track.
+4. One clear effect per shot: give the effects model only the main sound.
+5. Effects follow the description harder: guidance 4.5 to 6.5.
+6. Effects made over longer stretches: join quick shots into clips up to 8 s.
 
 ## What works (tested)
 
@@ -66,10 +99,11 @@ the picture looks, and the music sits 8 dB under the effects (`MUSIC_LUFS_NO_VOI
 
 ## Needed from Anthony
 
-- [ ] Watch `prompt1_output/mitey_vacuum_with_sound.mp4` and say what sounds right
-      and wrong.
-- [ ] Four more test videos (some with talking, some with fast cuts) before Phase 2.
-- [ ] Say "start Prompt 2" when ready.
+- [ ] Rate every tile on the rating page (1 to 5), including "Current settings".
+- [ ] Say which effects sounded wrong in the Phase 1 video (still open).
+- [ ] Four more test videos (some with talking, some with fast cuts) would make the
+      tuning much more trustworthy; one video with no speech is thin evidence.
+- [ ] Say "start Prompt 3" when ready.
 - Later (Phase 5): Stripe account.
 
 ## Licence check (2026-11-24)
