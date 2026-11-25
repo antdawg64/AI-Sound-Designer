@@ -513,3 +513,16 @@ moments 3. Applied by hand: `sfx_leveling: by_shot`, `sfx_prompt_style: short`.
 Finished video (the rated tile): 
 `/mnt/project-files/prompt2_tuning/new_defaults/mitey_vacuum_tuned_round12.mp4`.
 Phase 2 Modal spend about $1.70. Phase 3 not started.
+
+## Round 13 (2026-11-25): build from scratch, waiting for Anthony's ratings
+
+Anthony asked for a rebuild from nothing with the current defaults, to compare with the
+round 12 winner. The old cache was moved to `cache_before_rebuild/` (git-ignored, lost
+when this container goes) and `python tune.py` run with no variants: new plan, new cue
+sheet, new effects, new music. All checks passed. The new plan differs a little (the
+cable moment is now "wire line snaps taut with a twang", and there is a new moment at
+9.2 s); the cue sheet has three sections. Page run `20261125-065425`: "Built from
+scratch" and "Round 12 version". Copy:
+`/mnt/project-files/prompt2_tuning/new_defaults/mitey_vacuum_fresh_build.mp4`.
+
+| 2026-11-25 | Round 13: full fresh build | 143 | $0.28 |

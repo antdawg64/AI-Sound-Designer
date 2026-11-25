@@ -1,51 +1,7 @@
 {
-  "_about": "Round 12 (2026-11-25): effects balance (Anthony: 'Some sound effects are a lot louder than others. It should only be louder when it makes sense... I can't hear the vacuum') and key moments that go missing ('we missed the cable shooting out from his arm'). Earlier rounds are in variants_round*.json.",
+  "_about": "Round 13 (2026-11-25): a build from scratch with the current defaults (new plan, new effects, new music, nothing reused), next to the round 12 winner.",
   "videos": [],
   "vibes": {},
   "include_takes": false,
-  "variants": [
-    {
-      "id": "balanced",
-      "label": "Effects balanced shot by shot",
-      "setting": "sfx_leveling",
-      "value": "by_shot",
-      "why": "Every shot's effects are brought to the same level, then shots whose main sound matters most (the vacuum) sit above the rest. Before, short sharp sounds like footsteps came out as loud as anything."
-    },
-    {
-      "id": "balanced_steady",
-      "label": "Balanced, and steady sounds kept steady",
-      "settings": {
-        "sfx_leveling": "by_shot",
-        "sfx_even_out": 0.8
-      },
-      "why": "As Balanced, and stretches where a continuous sound such as the vacuum fades away for a few seconds are lifted back up."
-    },
-    {
-      "id": "balanced_louder",
-      "label": "Balanced, effects a bit louder against the music",
-      "settings": {
-        "sfx_leveling": "by_shot",
-        "sfx_lufs_no_voice": -31.0
-      },
-      "why": "As above, with all effects 3 dB louder compared with the music."
-    },
-    {
-      "id": "balanced_best4",
-      "label": "Balanced, key moments best of four tries",
-      "settings": {
-        "sfx_leveling": "by_shot",
-        "spot_candidates": 4
-      },
-      "why": "As Balanced, and each key moment (the cable firing, the hook, the snaps) is generated four times and the closest match to its description is kept."
-    },
-    {
-      "id": "balanced_every_sound",
-      "label": "Balanced, background effects asked for every planned sound",
-      "settings": {
-        "sfx_leveling": "by_shot",
-        "sfx_prompt_style": "short"
-      },
-      "why": "As Balanced, and the effects model is asked for every planned sound in a shot instead of only the main one, so the cable shot is no longer asked for only the vacuum roar."
-    }
-  ]
+  "variants": []
 }
