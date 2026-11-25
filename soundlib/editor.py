@@ -105,6 +105,8 @@ def build(out_dir: Path, *, segments: list[dict], spots: list[dict], layers: lis
                 "label": ROLE_NAMES.get(role, "") + item["prompt"], "start": round(a / sr, 6),
                 "duration": round((b - a) / sr, 6), "file": f"{clip_id}.flac",
                 "level_db": _level_db(layer[a:b])}
+        if (item.get("library") or {}).get("used"):    # a real recording from the library
+            clip["recording"] = {k: item["library"].get(k) for k in ("source", "id", "title", "licence")}
         if is_ambience:
             clip["loudness"] = "quiet"
         elif is_moment:

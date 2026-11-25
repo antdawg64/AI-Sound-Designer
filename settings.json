@@ -199,6 +199,21 @@
     "web_blocked_countries": ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "GB", "KR"]
   },
 
+  "library": {
+    "_sfx_library": "off = every sound is generated, as before. on = real recordings for common sounds: each sound that is made on its own (a key moment, its whoosh or detail, the background of the place, a steady sound source) is first looked for in a library of public-domain (CC0) recordings; a recording is used only when it clearly fits, otherwise the sound is generated. Sounds that must follow the picture beat by beat (footsteps) are still generated.",
+    "sfx_library": "off",
+    "_library_kinds": "Which kinds of sound may come from the library: moment, whoosh, detail, ambience, source.",
+    "library_kinds": ["moment", "whoosh", "detail", "ambience", "source"],
+    "_library_judge": "claude = Claude reads the titles, tags and descriptions of the closest recordings and picks one or says 'generate it'. score = the closest recording by sound is used if it is close enough.",
+    "library_judge": "claude",
+    "library_judge_model": "",
+    "_library_min_score": "How close (0 to 1) a recording's sound must be to the description before it is even considered.",
+    "library_min_score": 0.25,
+    "library_candidates": 6,
+    "library_sources": ["fsd50k"],
+    "library_app": ""
+  },
+
   "checks": {
     "check_duration_tolerance": 0.1,
     "check_lufs_tolerance": 1.0,

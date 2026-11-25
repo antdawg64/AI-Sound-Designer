@@ -35,7 +35,7 @@ from pathlib import Path
 import numpy as np
 
 from soundlib import config as C
-from soundlib import editor, lyria, media, mixing, planning, proxyfix
+from soundlib import editor, library, lyria, media, mixing, planning, proxyfix
 from soundlib.checks import check_outputs
 
 ROOT = Path(__file__).parent
@@ -149,6 +149,9 @@ class Cloud:
         return data, sr
 
     def effects(self, clip: Path, prompt: str, seg: dict) -> tuple[np.ndarray, int]:
+        real = library.find(self, prompt, seg)    # a real recording, when one clearly fits
+        if real is not None:
+            return real
         return self._collect(
             self.foley.generate.remote_gen(
                 clip.read_bytes(), prompt, seed=C.SEED + seg["index"], steps=C.FOLEY_STEPS,
@@ -334,8 +337,15 @@ class Cached:
                         C.SEED + seg["index"], C.FOLEY_STEPS, C.FOLEY_GUIDANCE,
                         C.FOLEY_NEG_PROMPT, C.FOLEY_MODEL_SIZE,
                         *([f"best of {int(C.FOLEY_CANDIDATES)}"] if int(C.FOLEY_CANDIDATES) > 1 else []),
-                        *([_judge(seg)] if _judge(seg) else []))
-        return self._audio(key, lambda: self.backend.effects(clip, prompt, seg))
+                        *([_judge(seg)] if _judge(seg) else []), *library.cache_tag(seg))
+        # Which real recording was used (or why none) is kept next to the saved sound.
+        note = self.folder / f"{key}.library.json"
+        if note.exists():
+            seg["library"] = json.loads(note.read_text())
+        made = self._audio(key, lambda: self.backend.effects(clip, prompt, seg))
+        if "library" in seg and not note.exists():
+            note.write_text(json.dumps(seg["library"]))
+        return made
 
     def effects_text(self, asks: list[dict]) -> list[tuple[np.ndarray, int]]:
         import soundfile as sf
@@ -725,6 +735,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             "moments": [{k: v for k, v in s.items() if k != "audio"} for s in spots],
             "ambience": {k: v for k, v in ambience.items() if k != "audio"} if ambience else None,
             "mix": {k: v for k, v in mixed.items() if k in ("style", "gain_db", "dialogue", "lufs", "true_peak_db")},
+            "library_recordings": library.used([*segments, *spots, ambience]),
             "room": plan["room"],
             "cues": cues,
             "music": {"provider": C.MUSIC_PROVIDER if parts != "effects" else None,
