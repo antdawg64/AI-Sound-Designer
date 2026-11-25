@@ -1,0 +1,11 @@
+video,variant,setting,value,rating,note,rated_at
+mitey-vacuum-short-living-room-silent,current,,,2,,2026-11-25T01:32:38Z
+mitey-vacuum-short-living-room-silent,music_further_back,music_lufs_no_voice,-30,2,,2026-11-25T01:33:11Z
+mitey-vacuum-short-living-room-silent,music_can_build,music_even_out,0,3,,2026-11-25T01:33:43Z
+mitey-vacuum-short-living-room-silent,music_sparse,music_prompt_template,"""{genre}, {mood}, sparse minimal underscore, {instruments}, slow build, lots of space, no vocals""",2,,2026-11-25T01:34:11Z
+mitey-vacuum-short-living-room-silent,effects_main_sound,sfx_prompt_style,"""main""",3,,2026-11-25T01:34:41Z
+mitey-vacuum-short-living-room-silent,effects_follow_words,foley_guidance,6.5,3,,2026-11-25T01:35:20Z
+mitey-vacuum-short-living-room-silent,effects_longer_clips,foley_group_seconds,8,3,,2026-11-25T01:36:24Z
+mitey-vacuum-short-living-room-silent,take_1,,,2,,2026-11-25T01:37:13Z
+mitey-vacuum-short-living-room-silent,take_2,,,3,,2026-11-25T01:37:13Z
+mitey-vacuum-short-living-room-silent,take_3,,,1,,2026-11-25T01:37:29Z

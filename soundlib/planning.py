@@ -179,8 +179,17 @@ def segment_prompt(plan: dict, seg: dict) -> tuple[str, float]:
     style = C.SFX_PROMPT_STYLE
     if style == "main":
         rank = {"loud": 2, "medium": 1, "quiet": 0}
-        best = max(hits, key=lambda f: (rank[f["loudness"]], f["end"] - f["start"]))
-        return best["description"].rstrip("."), gain
+        # One main sound per shot, so a clip that spans several shots still gets each
+        # shot's key sound, in order.
+        parts = []
+        for shot in plan["shots"]:
+            mine = [fx for fx in shot["effects"] if any(fx is h for h in hits)]
+            if shot["shot"] in wanted and mine:
+                best = max(mine, key=lambda f: (rank[f["loudness"]], f["end"] - f["start"]))
+                text = best["description"].rstrip(".")
+                if text not in parts:
+                    parts.append(text)
+        return ", ".join(parts), gain
     seen, parts = set(), []
     for fx in hits:
         text = fx["description"].rstrip(".")

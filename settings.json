@@ -16,13 +16,13 @@
 
   "effects": {
     "_sfx_prompt_style": "How the effect descriptions are worded for the effects model. detailed = every planned sound; main = only the most important sound; short = every sound, trimmed to a few words each.",
-    "sfx_prompt_style": "detailed",
-    "foley_guidance": 4.5,
+    "sfx_prompt_style": "main",
+    "foley_guidance": 6.5,
     "foley_steps": 50,
     "foley_neg_prompt": "noisy, harsh, music, speech, voice, singing",
     "foley_model_size": "xxl",
     "_foley_group_seconds": "0 = every shot gets its own clip. A number = neighbouring short shots are joined into clips up to this many seconds, so the model hears more context.",
-    "foley_group_seconds": 0.0,
+    "foley_group_seconds": 8,
     "foley_max_segment_seconds": 10.0,
     "foley_min_segment_seconds": 1.0,
     "foley_overlap_seconds": 0.3,
@@ -44,7 +44,7 @@
     "music_min_seconds": 10.0,
     "music_fade_out_seconds": 1.5,
     "_music_even_out": "0 = leave the music's slow swells alone, 1 = flatten them.",
-    "music_even_out": 0.6,
+    "music_even_out": 0,
     "music_even_out_max_db": 12.0
   },
 

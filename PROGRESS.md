@@ -5,9 +5,10 @@ _Last updated: 2026-11-24_
 ## Where things stand
 
 Phase 1 (the one-command prototype) is done. Phase 2 (quality tuning) is **built and
-run on the vacuum video**, as of 2026-11-25. It is waiting for Anthony to rate the
-variants on the rating page; then Claude runs `python tune.py --apply` to make the
-winners the new defaults. Do not start Phase 3 until Anthony asks.
+run on the vacuum video**, and **done** as of 2026-11-25: Anthony rated the variants
+and the four winners are the new defaults (see the tuning round at the bottom).
+Nothing scored above 3 out of 5, so the sound still needs work. Do not start Phase 3
+until Anthony asks.
 
 ## Phase 2: quality tuning (2026-11-25)
 
@@ -99,7 +100,8 @@ the picture looks, and the music sits 8 dB under the effects (`MUSIC_LUFS_NO_VOI
 
 ## Needed from Anthony
 
-- [ ] Rate every tile on the rating page (1 to 5), including "Current settings".
+- [ ] Listen to `/mnt/project-files/prompt2_tuning/new_defaults/mitey_vacuum_tuned.mp4`
+      (the four winners combined) and say what is still wrong.
 - [ ] Say which effects sounded wrong in the Phase 1 video (still open).
 - [ ] Four more test videos (some with talking, some with fast cuts) would make the
       tuning much more trustworthy; one video with no speech is thin evidence.
@@ -139,3 +141,29 @@ Read each model's own LICENSE and README. Both match CLAUDE.md.
 | 2026-11-24 | Real run 2 after level fixes | 147 | $0.14 est. (GPU $0.08 + Claude $0.07) |
 | 2026-11-24 | Two Claude plan tests | 0 | $0.13 |
 | 2026-11-24 | Real run 3 after Anthony's feedback | 161 | $0.15 est. |
+
+## Tuning round, 2026-11-25
+
+From Anthony's ratings in `ratings.csv` (current settings scored 2.0 out of 5):
+
+- `effects_follow_words`: 3.0 (better)
+- `effects_longer_clips`: 3.0 (better)
+- `effects_main_sound`: 3.0 (better)
+- `music_can_build`: 3.0 (better)
+- `music_further_back`: 2.0 (same)
+- `music_sparse`: 2.0 (same)
+
+New defaults written to `settings.json`:
+
+- `foley_guidance`: `4.5` to `6.5`
+- `foley_group_seconds`: `0.0` to `8`
+- `sfx_prompt_style`: `detailed` to `main`
+- `music_even_out`: `0.6` to `0`
+
+After applying, the four winners were run together once on the vacuum video (all checks
+pass, $0.03): `/mnt/project-files/prompt2_tuning/new_defaults/`. The "main" prompt
+style was changed to keep one main sound per shot when a clip spans several shots.
+Anthony's scores on the three takes: 2, 3 (sparse music), 1 (bigger music).
+
+| 2026-11-25 | Phase 2 tuning run: baseline, 6 variants, 3 takes | 657 | $0.42 est. |
+| 2026-11-25 | Phase 2 confirmation run with the new defaults | 63 | $0.03 est. |
