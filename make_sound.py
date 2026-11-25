@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 
 from soundlib import config as C
-from soundlib import editor, media, mixing, planning, proxyfix
+from soundlib import editor, lyria, media, mixing, planning, proxyfix
 from soundlib.checks import check_outputs
 
 ROOT = Path(__file__).parent
@@ -57,6 +57,7 @@ class Cloud:
 
         self.modal = modal
         self.gpu_calls: list[dict] = []
+        self.api_calls: list[dict] = []   # paid calls to outside services (Google Lyria)
         self.claude: dict = {}
 
     def deploy(self) -> None:
@@ -136,6 +137,19 @@ class Cloud:
                 candidates=int(C.FOLEY_CANDIDATES)),
             f"effects segment {seg['index']}")
 
+    def compose_lyria(self, prompt: str, seconds: float) -> tuple[np.ndarray, int]:
+        """Music from Google Lyria (its own small Modal app, lyria_app.py)."""
+        import soundfile as sf
+
+        fn = self.modal.Function.from_name("ai-sound-designer-lyria", "compose")
+        lyria_settings = {k: v for k, v in C.current().items() if k.startswith("lyria_")}
+        stream = fn.remote_gen(prompt, C.LYRIA_NEGATIVE_PROMPT, seconds, C.SEED, C.LYRIA_MODEL, lyria_settings)
+        meta = next(stream)
+        flac = b"".join(stream)
+        self.api_calls.append({"what": "music (Google Lyria)", "model": meta["model"],
+                               "clips": meta["clips"], "dollars": meta["dollars"]})
+        return sf.read(io.BytesIO(flac), dtype="float32", always_2d=True)
+
     def compose(self, caption: str, bpm: int, seconds: float, keyscale: str = "") -> tuple[np.ndarray, int]:
         return self._collect(
             self.music(model=C.MUSIC_MODEL).generate.remote_gen(
@@ -150,10 +164,14 @@ class TestTones:
     """Stands in for the AI models so the rest of the pipeline can be tested for free."""
 
     gpu_calls: list[dict] = []
+    api_calls: list[dict] = []
     claude: dict = {}
 
     def connect(self) -> None:
         pass
+
+    def compose_lyria(self, prompt: str, seconds: float) -> tuple[np.ndarray, int]:
+        return self.compose(prompt, 110, seconds)
 
     def plan(self, frames, shots, duration, speech, vibe=None) -> dict:
         return {
@@ -215,6 +233,8 @@ class Cached:
 
     gpu_calls = property(lambda self: self.backend.gpu_calls,
                          lambda self, v: setattr(self.backend, "gpu_calls", v))
+    api_calls = property(lambda self: self.backend.api_calls,
+                         lambda self, v: setattr(self.backend, "api_calls", v))
     claude = property(lambda self: self.backend.claude)
 
     def connect(self) -> None:
@@ -270,6 +290,10 @@ class Cached:
                         C.MUSIC_MODEL, C.MUSIC_GUIDANCE)
         return self._audio(key, lambda: self.backend.compose_scored(caption, bpm, seconds, keyscale, sections))
 
+    def compose_lyria(self, prompt: str, seconds: float) -> tuple[np.ndarray, int]:
+        key = self._key("lyria", prompt, seconds, C.SEED, C.LYRIA_MODEL, C.LYRIA_NEGATIVE_PROMPT)
+        return self._audio(key, lambda: self.backend.compose_lyria(prompt, seconds))
+
     def cues(self, frames, shots, duration, plan) -> dict:
         jpegs = b"".join(Path(f["path"]).read_bytes() for f in frames)
         key = self._key("cues", hashlib.sha256(jpegs).hexdigest(), shots, plan, C.PLAN_MODEL,
@@ -293,6 +317,19 @@ class Cached:
 # --- The pipeline -----------------------------------------------------------------
 
 PARTS = ("both", "effects", "music")
+
+
+def _try_lyria(backend, caption: str, bpm: int, cues: dict | None, duration: float):
+    """Music from Google Lyria, or None if Google fails (the run then carries on with
+    the ACE-Step music, so a video never fails because of the outside service)."""
+    prompt = lyria.story_prompt(caption, bpm, cues["key"] if cues else "",
+                                cues["sections"] if cues else [], duration)
+    say(f"    Google Lyria ({C.LYRIA_MODEL}): {prompt}")
+    try:
+        return backend.compose_lyria(prompt, float(duration))
+    except Exception as exc:
+        say(f"    Google Lyria failed ({str(exc)[:200]}); using the ACE-Step music instead")
+        return None
 
 
 def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
@@ -403,6 +440,8 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                 say(f"    {hit['strength']} hit at {hit['time']:.1f}s: {hit['what']}")
         if parts == "effects":
             music = silence
+        elif C.MUSIC_PROVIDER == "lyria" and (lyria_take := _try_lyria(backend, caption, bpm, cues, duration)):
+            music = mixing.shape_music(*lyria_take, duration)
         elif cues and C.MUSIC_SCORING == "sections":
             pieces = []
             for sec in cues["sections"]:
@@ -452,6 +491,8 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         gpu_seconds = sum(c["gpu_seconds"] + c["load_seconds"] for c in backend.gpu_calls)
         gpu_dollars = sum((c["gpu_seconds"] + c["load_seconds"]) * C.GPU_DOLLARS_PER_SECOND[c["gpu"]]
                           for c in backend.gpu_calls)
+        api_calls = list(getattr(backend, "api_calls", []))
+        api_dollars = sum(c["dollars"] for c in api_calls)
         report = {
             "video": str(video), "output_dir": str(out_dir), "duration": duration,
             "test_tones_only": isinstance(getattr(backend, "backend", backend), TestTones),
@@ -462,12 +503,14 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             "moments": [{k: v for k, v in s.items() if k != "audio"} for s in spots],
             "room": plan["room"],
             "cues": cues,
-            "music": {"caption": caption, "bpm": bpm, "claude_bpm": music_plan["tempo_bpm"],
+            "music": {"provider": C.MUSIC_PROVIDER if parts != "effects" else None,
+                      "caption": caption, "bpm": bpm, "claude_bpm": music_plan["tempo_bpm"],
                       "average_beat_to_cut_seconds": miss},
             "cost": {"gpu_seconds": round(gpu_seconds, 1), "gpu_dollars": round(gpu_dollars, 4),
                      "claude_dollars": backend.claude.get("dollars", 0.0),
-                     "total_dollars": round(gpu_dollars + backend.claude.get("dollars", 0.0), 4),
-                     "gpu_calls": list(backend.gpu_calls), "claude": dict(backend.claude)},
+                     "api_dollars": round(api_dollars, 4),
+                     "total_dollars": round(gpu_dollars + api_dollars + backend.claude.get("dollars", 0.0), 4),
+                     "gpu_calls": list(backend.gpu_calls), "api_calls": api_calls, "claude": dict(backend.claude)},
             "wall_seconds": round(time.time() - started, 1),
         }
         (out_dir / "plan.json").write_text(json.dumps(plan, indent=2))
@@ -477,6 +520,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         return report
     finally:
         backend.gpu_calls = []
+        backend.api_calls = []
         if keep_work:
             say(f"Working files kept in {work}")
         else:
