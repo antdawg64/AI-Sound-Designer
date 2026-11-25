@@ -1,0 +1,36 @@
+{
+  "_about": "Round 4 (2026-11-25): effects still too loud after round 3 (Anthony: 'better but still loud'), default now -30. Earlier rounds are in variants_round*.json.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "effects_minus_4",
+      "label": "Effects 4 dB quieter",
+      "setting": "sfx_lufs_no_voice",
+      "value": -34.0,
+      "why": "One more step down from the first tile."
+    },
+    {
+      "id": "effects_minus_8",
+      "label": "Effects 8 dB quieter",
+      "setting": "sfx_lufs_no_voice",
+      "value": -38.0,
+      "why": "Two steps down. Effects become a faint layer under the music."
+    },
+    {
+      "id": "no_loud_boost",
+      "label": "No extra push on loud moments",
+      "setting": "loudness_db",
+      "value": {"quiet": -6.0, "medium": 0.0, "loud": 0.0},
+      "why": "Sounds the plan marks as loud (most of the vacuum roar) no longer get a 4 dB boost over the rest."
+    },
+    {
+      "id": "softer_moments",
+      "label": "Softer moment effects",
+      "setting": "spot_gain_db",
+      "value": -8.0,
+      "why": "The extra effects placed at exact moments (hook, snap, whoosh) come down 6 dB."
+    }
+  ]
+}

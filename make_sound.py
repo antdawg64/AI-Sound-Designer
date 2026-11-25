@@ -76,7 +76,7 @@ class Cloud:
             self.deploy()
             plan_fn = self.modal.Function.from_name(APP_NAME, "plan_sound")
         foley = self.modal.Cls.from_name(APP_NAME, "Foley")()
-        music = self.modal.Cls.from_name(APP_NAME, "Music")()
+        music = self.modal.Cls.from_name(APP_NAME, "Music")
         return plan_fn, foley, music
 
     def connect(self) -> None:
@@ -119,7 +119,8 @@ class Cloud:
 
     def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
         return self._collect(
-            self.music.generate.remote_gen(caption, bpm, seconds, seed=C.SEED, steps=C.MUSIC_STEPS),
+            self.music(model=C.MUSIC_MODEL).generate.remote_gen(
+                caption, bpm, seconds, seed=C.SEED, steps=C.MUSIC_STEPS, guidance=C.MUSIC_GUIDANCE),
             "music")
 
 
@@ -233,7 +234,8 @@ class Cached:
         return self._audio(key, lambda: self.backend.effects(clip, prompt, seg))
 
     def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
-        key = self._key("music", caption, bpm, seconds, C.SEED, C.MUSIC_STEPS, C.MUSIC_MODEL)
+        key = self._key("music", caption, bpm, seconds, C.SEED, C.MUSIC_STEPS, C.MUSIC_MODEL,
+                        *([C.MUSIC_GUIDANCE] if "turbo" not in C.MUSIC_MODEL else []))
         return self._audio(key, lambda: self.backend.compose(caption, bpm, seconds))
 
 

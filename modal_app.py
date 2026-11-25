@@ -15,7 +15,6 @@ Licences (read 2026-11-24):
   ACE-Step 1.5       - MIT.
 """
 
-from __future__ import annotations
 
 import io
 import os
@@ -147,11 +146,11 @@ def prepare_foley() -> str:
 
 
 @app.function(image=music_image, volumes={WEIGHTS: weights}, timeout=3600)
-def prepare_music() -> str:
-    """Download the music model and check that its code imports."""
+def prepare_music(model: str = C.MUSIC_MODEL) -> str:
+    """Download a music model and check that its code imports."""
     from soundlib import weights as W
 
-    fetched = W.download_music(WEIGHTS)
+    fetched = W.download_music(WEIGHTS, model)
     weights.commit()
     from acestep.handler import AceStepHandler  # noqa: F401
     from acestep.inference import GenerationConfig, GenerationParams, generate_music  # noqa: F401
@@ -254,19 +253,21 @@ class Foley:
 @app.cls(image=music_image, gpu=C.GPU_TYPE, volumes={WEIGHTS: weights}, timeout=1800,
          scaledown_window=60, max_containers=1)
 class Music:
+    model: str = modal.parameter(default="acestep-v15-turbo")
+
     @modal.enter()
     def load(self):
         started = time.time()
         from soundlib import weights as W
 
         root = W.music_root(WEIGHTS)
-        if W.download_music(WEIGHTS):
+        if W.download_music(WEIGHTS, self.model):
             weights.commit()
         from acestep.handler import AceStepHandler
 
         self.dit = AceStepHandler()
         status, ok = self.dit.initialize_service(
-            project_root=root, config_path=C.MUSIC_MODEL, device="cuda")
+            project_root=root, config_path=self.model, device="cuda")
         if not ok:
             raise RuntimeError(f"ACE-Step failed to load: {status}")
         self.load_seconds = time.time() - started
@@ -274,7 +275,7 @@ class Music:
 
     @modal.method()
     def generate(self, caption: str, bpm: int, duration: float, seed: int = C.SEED,
-                 steps: int = C.MUSIC_STEPS):
+                 steps: int = C.MUSIC_STEPS, guidance: float = C.MUSIC_GUIDANCE):
         """Generate an instrumental track. Streams back FLAC audio."""
         import tempfile
 
@@ -284,6 +285,7 @@ class Music:
         params = GenerationParams(
             task_type="text2music", caption=caption, lyrics="[Instrumental]", instrumental=True,
             bpm=int(bpm), duration=float(duration), inference_steps=steps, seed=seed,
+            guidance_scale=float(guidance),
             thinking=False, use_cot_metas=False, use_cot_caption=False, use_cot_language=False,
         )
         config = GenerationConfig(batch_size=1, use_random_seed=False, seeds=[seed],

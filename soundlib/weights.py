@@ -40,18 +40,32 @@ def download_foley(root: str) -> bool:
     return True
 
 
-def download_music(root: str) -> bool:
+BASE_MUSIC_MODEL = "acestep-v15-turbo"
+
+
+def download_music(root: str, model: str = BASE_MUSIC_MODEL) -> bool:
     """Fetch ACE-Step 1.5 (music model, text encoder, audio codec). The optional
-    language-model planner is skipped: the music brief comes from Claude."""
+    language-model planner is skipped: the music brief comes from Claude.
+
+    Other music models (the XL ones) live in their own Hugging Face repos and are
+    fetched next to the standard one the first time they are asked for.
+    """
     from huggingface_hub import snapshot_download
 
     base = music_root(root)
+    fetched = False
     marker = f"{base}/.download-complete"
-    if os.path.exists(marker):
-        return False
-    snapshot_download(
-        "ACE-Step/Ace-Step1.5", local_dir=f"{base}/checkpoints",
-        allow_patterns=[f"{C.MUSIC_MODEL}/*", "vae/*", "Qwen3-Embedding-0.6B/*", "config.json"],
-    )
-    open(marker, "w").close()
-    return True
+    if not os.path.exists(marker):
+        snapshot_download(
+            "ACE-Step/Ace-Step1.5", local_dir=f"{base}/checkpoints",
+            allow_patterns=[f"{BASE_MUSIC_MODEL}/*", "vae/*", "Qwen3-Embedding-0.6B/*", "config.json"],
+        )
+        open(marker, "w").close()
+        fetched = True
+    if model != BASE_MUSIC_MODEL:
+        marker = f"{base}/.download-complete-{model}"
+        if not os.path.exists(marker):
+            snapshot_download(f"ACE-Step/{model}", local_dir=f"{base}/checkpoints/{model}")
+            open(marker, "w").close()
+            fetched = True
+    return fetched

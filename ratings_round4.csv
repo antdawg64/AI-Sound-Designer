@@ -1,0 +1,6 @@
+video,variant,setting,value,rating,note,rated_at
+mitey-vacuum-short-living-room-silent,current,,,1,,2026-11-25T03:09:14Z
+mitey-vacuum-short-living-room-silent,effects_minus_4,sfx_lufs_no_voice,-34,2,,2026-11-25T03:09:13Z
+mitey-vacuum-short-living-room-silent,effects_minus_8,sfx_lufs_no_voice,-38,3,,2026-11-25T03:09:08Z
+mitey-vacuum-short-living-room-silent,no_loud_boost,loudness_db,"{""quiet"":-6,""medium"":0,""loud"":0}",3,,2026-11-25T03:10:00Z
+mitey-vacuum-short-living-room-silent,softer_moments,spot_gain_db,-8,4,,2026-11-25T03:09:42Z

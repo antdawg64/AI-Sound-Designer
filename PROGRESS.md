@@ -254,3 +254,35 @@ moment effects 6 dB softer (`spot_gain_db` -8). After he rates: copy that run's 
 into `ratings.csv`, `python tune.py --apply`, redeploy. If quieter keeps winning, the
 real problem may be the character of the effects (a constant harsh vacuum roar), not
 their level; ask Anthony what exactly sounds too loud.
+
+## Tuning round, 2026-11-25
+
+From Anthony's ratings in `ratings.csv` (current settings scored 1.0 out of 5):
+
+- `effects_minus_4`: 2.0 (better, but another change to the same setting scored higher)
+- `effects_minus_8`: 3.0 (better)
+- `no_loud_boost`: 3.0 (better)
+- `softer_moments`: 4.0 (better)
+
+New defaults written to `settings.json`:
+
+- `sfx_lufs_no_voice`: `-30` to `-38`
+- `loudness_db`: `{"quiet": -6.0, "medium": 0.0, "loud": 4.0}` to `{"quiet": -6, "medium": 0, "loud": 0}`
+- `spot_gain_db`: `-2.0` to `-8`
+
+Round 4 outcome: softer moment effects scored 4 (best so far), no loud boost 3, effects
+at -38 scored 3; all three applied (`spot_gain_db` -8, `loudness_db` loud 0,
+`sfx_lufs_no_voice` -38, and `sfx_lufs` -41 with voice set by hand to match).
+
+## Round 5 (2026-11-25): music quality, waiting for Anthony's ratings
+
+Anthony asked how to make the music better quality. Added the ACE-Step 1.5 XL models
+(4B, MIT, not gated; licence read on each Hugging Face model card 2026-11-25):
+`acestep-v15-xl-turbo` (8 steps) and `acestep-v15-xl-sft` (50 steps, guidance 7).
+Both are downloaded to the Modal volume (20 GB each). The `Music` class on Modal now
+takes the model as a parameter, so each model runs in its own container. Page run
+`20261125-031413`: current (2B turbo), XL turbo, XL sft at 50 steps, and a check tile
+with effects at -34. Not tried yet: the model's own LM planner ("thinking" mode).
+
+| 2026-11-25 | Rounds 3 and 4 (mix only, all cached) | 0 | $0 |
+| 2026-11-25 | XL music model downloads (CPU) and round 5 run | 62 | $0.03 est. plus cents of CPU |
