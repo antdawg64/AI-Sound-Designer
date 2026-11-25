@@ -1,22 +1,29 @@
 {
-  "_about": "Round 7 (2026-11-25): music scored to the picture, like film sound design. Earlier rounds are in variants_round*.json.",
+  "_about": "Round 8 (2026-11-25): smoother transitions between the music sections (Anthony: 'needs smoother transitions but right thought'). Earlier rounds are in variants_round*.json.",
   "videos": [],
   "vibes": {},
   "include_takes": false,
   "variants": [
     {
-      "id": "music_shaped",
-      "label": "Music follows the story",
-      "setting": "music_scoring",
-      "value": "shaped",
-      "why": "The same track, but it now sits low in the calm parts, builds with the tension, drops out just before the big moments and lands on them."
+      "id": "blend_1s",
+      "label": "Sections blend over 1 second",
+      "setting": "section_crossfade_seconds",
+      "value": 1.0,
+      "why": "Instead of switching sharply on the cut, each section fades into the next over one second."
     },
     {
-      "id": "music_sections",
-      "label": "Music scored in sections",
+      "id": "blend_2s",
+      "label": "Sections blend over 2 seconds",
+      "setting": "section_crossfade_seconds",
+      "value": 2.0,
+      "why": "A longer, gentler blend between sections."
+    },
+    {
+      "id": "one_piece",
+      "label": "One continuous piece, rewritten per section",
       "setting": "music_scoring",
-      "value": "sections",
-      "why": "Each part of the story gets its own piece of music, in the same tempo and key, changing on the cuts. It also builds, drops out and lands like the tile before."
+      "value": "repaint",
+      "why": "The music model composes one full track, then rewrites each section inside it to fit the story, so the joins are made by the model itself."
     }
   ]
 }

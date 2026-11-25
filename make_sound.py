@@ -90,6 +90,14 @@ class Cloud:
         self.claude = result["usage"]
         return result["plan"]
 
+    def compose_scored(self, caption: str, bpm: int, seconds: float, keyscale: str,
+                       sections: list[dict]) -> tuple[np.ndarray, int]:
+        return self._collect(
+            self.music(model=C.MUSIC_MODEL).generate_scored.remote_gen(
+                caption, bpm, seconds, sections, seed=C.SEED, steps=C.MUSIC_STEPS,
+                guidance=C.MUSIC_GUIDANCE, keyscale=keyscale),
+            "music (scored)")
+
     def cues(self, frames: list[dict], shots: list[dict], duration: float, plan: dict) -> dict:
         payload = [{"shot": f["shot"], "time": f["time"], "jpeg": Path(f["path"]).read_bytes()}
                    for f in frames]
@@ -165,6 +173,9 @@ class TestTones:
         noise = np.convolve(noise, np.ones(24, dtype=np.float32) / 24, mode="same")
         swell = 0.6 + 0.4 * np.sin(np.linspace(0, 6 * np.pi, n, dtype=np.float32))
         return (0.4 * noise * swell)[:, None], sr
+
+    def compose_scored(self, caption, bpm, seconds, keyscale, sections):
+        return self.compose(caption + str(len(sections)), bpm, seconds)
 
     def cues(self, frames, shots, duration, plan) -> dict:
         mid = shots[len(shots) // 2]["start"] if len(shots) > 1 else duration / 2
@@ -251,6 +262,11 @@ class Cached:
                         C.FOLEY_NEG_PROMPT, C.FOLEY_MODEL_SIZE,
                         *([f"best of {int(C.FOLEY_CANDIDATES)}"] if int(C.FOLEY_CANDIDATES) > 1 else []))
         return self._audio(key, lambda: self.backend.effects(clip, prompt, seg))
+
+    def compose_scored(self, caption, bpm, seconds, keyscale, sections):
+        key = self._key("scored", caption, bpm, seconds, keyscale, sections, C.SEED, C.MUSIC_STEPS,
+                        C.MUSIC_MODEL, C.MUSIC_GUIDANCE)
+        return self._audio(key, lambda: self.backend.compose_scored(caption, bpm, seconds, keyscale, sections))
 
     def cues(self, frames, shots, duration, plan) -> dict:
         jpegs = b"".join(Path(f["path"]).read_bytes() for f in frames)
@@ -355,6 +371,14 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                 parts.append(media.to_stereo_48k(raw, sr))
             music = mixing.join_sections(parts, cues["sections"], duration, bpm)
             music = mixing.shape_music(music, C.SAMPLE_RATE, duration)
+        elif cues and C.MUSIC_SCORING == "repaint":
+            parts = [{"start": sec["start"], "end": sec["end"],
+                      "caption": planning.music_caption(
+                          music_plan, ", ".join(x for x in (music_flavour, sec["description"]) if x))}
+                     for sec in cues["sections"]]
+            raw, sr = backend.compose_scored(
+                caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1), cues["key"], parts)
+            music = mixing.shape_music(raw, sr, duration)
         else:
             raw, sr = backend.compose(caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1))
             music = mixing.shape_music(raw, sr, duration)

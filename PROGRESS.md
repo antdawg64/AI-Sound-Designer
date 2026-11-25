@@ -364,3 +364,34 @@ Page run `20261125-043518`: current, shaped, sections. Not built: separate sting
 risers at hits, and tempo changes between sections.
 
 | 2026-11-25 | Round 7: cue sheet and sectioned music | 38 | $0.11 est. |
+
+## Tuning round, 2026-11-25
+
+From Anthony's ratings in `ratings.csv` (current settings scored 2.0 out of 5):
+
+- `music_sections`: 4.0 (better)
+- `music_shaped`: 3.0 (better, but another change to the same setting scored higher)
+
+New defaults written to `settings.json`:
+
+- `music_scoring`: `single` to `sections`
+
+Anthony's notes:
+
+- `music_sections`: needs smoother transitions but right thought
+
+## Round 8 (2026-11-25): smoother joins between sections, waiting for Anthony's ratings
+
+`sections` is now the default. Anthony's note: "needs smoother transitions but right
+thought". Two approaches built:
+
+- `section_crossfade_seconds` (settings.json): 0 = sharp switch on the cut (current);
+  a number = neighbouring sections blend into each other over that many seconds around
+  the cut (`mixing.join_sections`).
+- `music_scoring: repaint`: one full track is composed, then ACE-Step rewrites each
+  section inside it (`Music.generate_scored` on Modal, task type repaint), so it stays
+  one continuous piece and the model makes the joins itself.
+
+Page run `20261125-045101`: current, blend 1 s, blend 2 s, one piece.
+
+| 2026-11-25 | Round 8: blended joins and one-piece scoring | 43 | $0.02 est. |

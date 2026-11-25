@@ -309,3 +309,46 @@ class Music:
         if not self.reported_load:
             meta["load_seconds"], self.reported_load = self.load_seconds, True
         yield from _stream_audio(audio, sample_rate, meta)
+
+    @modal.method()
+    def generate_scored(self, caption: str, bpm: int, duration: float, sections: list[dict],
+                        seed: int = C.SEED, steps: int = C.MUSIC_STEPS,
+                        guidance: float = C.MUSIC_GUIDANCE, keyscale: str = ""):
+        """One continuous track scored in sections: compose the whole track, then have
+        the model rewrite ("repaint") each section in place from that section's own
+        caption. `sections` items: {start, end, caption}. Streams back FLAC audio."""
+        import tempfile
+
+        import soundfile as sf
+        from acestep.inference import GenerationConfig, GenerationParams, generate_music
+
+        started = time.time()
+        common = dict(lyrics="[Instrumental]", instrumental=True, bpm=int(bpm),
+                      duration=float(duration), inference_steps=steps,
+                      guidance_scale=float(guidance), keyscale=keyscale, thinking=False,
+                      use_cot_metas=False, use_cot_caption=False, use_cot_language=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            def run(n: int, **kw):
+                config = GenerationConfig(batch_size=1, use_random_seed=False, seeds=[seed + n],
+                                          audio_format="flac")
+                result = generate_music(self.dit, None, GenerationParams(seed=seed + n, **common, **kw),
+                                        config, save_dir=f"{tmp}/out{n}")
+                if not result.success or not result.audios:
+                    raise RuntimeError(f"ACE-Step failed: {result.error or result.status_message}")
+                item = result.audios[0]
+                audio, sr = _to_numpy(item["tensor"]), int(item["sample_rate"])
+                path = f"{tmp}/step{n}.wav"
+                sf.write(path, audio, sr, subtype="FLOAT")
+                return audio, sr, path
+
+            os.makedirs(tmp, exist_ok=True)
+            audio, sample_rate, path = run(0, task_type="text2music", caption=caption)
+            for n, sec in enumerate(sections, start=1):
+                end = -1 if sec["end"] >= duration - 0.05 else float(sec["end"])
+                audio, sample_rate, path = run(
+                    n, task_type="repaint", caption=sec["caption"], src_audio=path,
+                    repainting_start=float(sec["start"]), repainting_end=end)
+        meta = {"gpu_seconds": time.time() - started, "load_seconds": 0.0, "gpu": C.GPU_TYPE}
+        if not self.reported_load:
+            meta["load_seconds"], self.reported_load = self.load_seconds, True
+        yield from _stream_audio(audio, sample_rate, meta)

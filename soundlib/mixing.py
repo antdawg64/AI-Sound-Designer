@@ -233,22 +233,41 @@ def best_start(part: np.ndarray, need: int, bar_seconds: float) -> int:
 
 
 def join_sections(parts: list[np.ndarray], sections: list[dict], duration: float, bpm: int) -> np.ndarray:
-    """Lay separately composed sections on one timeline. Each starts on its cut, on a
-    downbeat; the one before it fades quickly underneath."""
+    """Lay separately composed sections on one timeline, each with a downbeat on its cut.
+
+    With SECTION_CROSSFADE_SECONDS at 0 a section starts sharply on the cut while the
+    one before fades quickly underneath. Above 0, neighbours blend over that many
+    seconds, centred on the cut.
+    """
     sr = C.SAMPLE_RATE
     total = int(round(duration * sr))
     out = np.zeros((total, 2), dtype=np.float32)
+    blend = int(float(C.SECTION_CROSSFADE_SECONDS) * sr)
     tail, head = int(0.3 * sr), int(0.03 * sr)
-    for part, sec in zip(parts, sections):
+    for i, (part, sec) in enumerate(zip(parts, sections)):
         a = int(round(sec["start"] * sr))
-        need = int(round((sec["end"] - sec["start"]) * sr)) + tail
+        length = int(round((sec["end"] - sec["start"]) * sr))
         part = set_loudness(part, -20.0)
-        start = best_start(part, need, 4 * 60.0 / bpm)
-        piece = part[start:start + need].copy()
-        if a > 0 and len(piece) > head:
-            piece[:head] *= np.linspace(0.0, 1.0, head, dtype=np.float32)[:, None]
-        n = min(tail, len(piece))
-        piece[-n:] *= np.cos(np.linspace(0, np.pi / 2, n, dtype=np.float32))[:, None]
+        if blend > 0:
+            lead = blend // 2 if i > 0 else 0          # starts early, fading in
+            lag = blend // 2 if i < len(sections) - 1 else 0
+            start = best_start(part, length + lag + lead, 4 * 60.0 / bpm)
+            start = max(start, lead)
+            piece = part[start - lead:start + length + lag].copy()
+            if lead:
+                n = min(2 * lead, len(piece))
+                piece[:n] *= np.sin(np.linspace(0, np.pi / 2, n, dtype=np.float32))[:, None]
+            if lag:
+                n = min(2 * lag, len(piece))
+                piece[-n:] *= np.cos(np.linspace(0, np.pi / 2, n, dtype=np.float32))[:, None]
+            a -= lead
+        else:
+            start = best_start(part, length + tail, 4 * 60.0 / bpm)
+            piece = part[start:start + length + tail].copy()
+            if a > 0 and len(piece) > head:
+                piece[:head] *= np.linspace(0.0, 1.0, head, dtype=np.float32)[:, None]
+            n = min(tail, len(piece))
+            piece[-n:] *= np.cos(np.linspace(0, np.pi / 2, n, dtype=np.float32))[:, None]
         b = min(total, a + len(piece))
         out[a:b] += piece[: b - a]
     return out
