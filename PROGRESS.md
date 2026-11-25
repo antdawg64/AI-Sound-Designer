@@ -2,6 +2,15 @@
 
 _Last updated: 2026-11-25_
 
+## The site is private (2026-11-25)
+
+One shared password in front of every page and API call (`soundlib/gate.py`, sign-in page
+`web/login.html`). The password is in the Modal secret `site-password` (key
+`SITE_PASSWORD`); change it with `modal secret create site-password SITE_PASSWORD=... --force`
+and redeploy. A Lovable sign-in page is being built in another thread; when it is
+published, put its address in `web_login_url` (settings.json) and redeploy. Tests
+through the live site must sign in first (POST `password` to `/login`, keep the cookie).
+
 ## Sound editor (built and live 2026-11-25)
 
 After the sound is made, the results page has a **Fine-tune the sound** button that
