@@ -1,5 +1,30 @@
 # Progress
 
+## Phase 3: web page (2026-11-25), live
+
+- Public page: https://anthony-56415--ai-sound-designer.us-east.modal.run
+- `web_app.py` (Modal app `ai-sound-designer-web`): the page (`web/index.html`), upload and
+  progress API, `run_job` (runs `make_sound.make_sound()` on a 4-CPU machine, calling the
+  GPU app by name), and a daily `cleanup` that deletes jobs after `web_keep_days` (7).
+  Files: Modal volume `ai-sound-designer-jobs` (`/jobs/<id>/`); status: Modal Dict of the
+  same name. Each job's `report.json` keeps the settings used, for later tuning.
+- People choose: effects and music, effects only, or music only (`--only` on the command
+  line). The part left out costs nothing and comes back as a silent file.
+- Licence rule: no uploads from the EU, UK or South Korea, checked by the country picked
+  on the page AND by the visitor's internet address (DB-IP Lite, CC BY 4.0, credited in the
+  footer). List: `web_blocked_countries` in settings.json.
+- Cost guard until Phase 4: at most `web_daily_job_limit` (10) videos a day for everyone,
+  about $3 at most. Videos 3 to 75 s, up to 400 MB.
+- Re-tuning: settings.json drives the command line, tune.py and the web page alike. After
+  a tuning round, `python make_sound.py --deploy` deploys both Modal apps.
+- Free test of the live page: add `?test=tones` to the address (test tones, no GPU).
+- Tested live 2026-11-25: vacuum video, effects and music, 243 s, all checks pass
+  (-13.9 LUFS, -1.0 dBTP, 28.000 s). Copies in `/mnt/project-files/prompt3_web/`. Also
+  tested: GB upload refused (403), effects-only with test tones.
+- The cloud session needs the exact host `anthony-56415--ai-sound-designer.us-east.modal.run`
+  allowed (added) to test the page; reading the jobs volume from here is blocked
+  (`clobber.modal-storage.com`), so check results through the page's own downloads.
+
 _Last updated: 2026-11-24_
 
 ## Where things stand
@@ -105,7 +130,7 @@ the picture looks, and the music sits 8 dB under the effects (`MUSIC_LUFS_NO_VOI
 - [ ] Say which effects sounded wrong in the Phase 1 video (still open).
 - [ ] Four more test videos (some with talking, some with fast cuts) would make the
       tuning much more trustworthy; one video with no speech is thin evidence.
-- [ ] Say "start Prompt 3" when ready.
+- [ ] Try the web page with your own videos and say what to change.
 - Later (Phase 5): Stripe account.
 
 ## Licence check (2026-11-24)
@@ -138,6 +163,7 @@ Read each model's own LICENSE and README. Both match CLAUDE.md.
 | 2026-11-24 | Phase 1 code and test-tone runs (no Modal use) | 0 | $0 |
 | 2026-11-24 | Model downloads and image builds (CPU only) | 0 | not measured, cents |
 | 2026-11-24 | Real run 1 on the vacuum video | 216 | $0.18 est. (GPU $0.12 + Claude $0.07) |
+| 2026-11-25 | Phase 3 live web test (vacuum, effects and music) | about 150 | about $0.30 est. |
 | 2026-11-24 | Real run 2 after level fixes | 147 | $0.14 est. (GPU $0.08 + Claude $0.07) |
 | 2026-11-24 | Two Claude plan tests | 0 | $0.13 |
 | 2026-11-24 | Real run 3 after Anthony's feedback | 161 | $0.15 est. |
