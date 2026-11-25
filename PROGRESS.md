@@ -2,7 +2,7 @@
 
 _Last updated: 2026-11-25_
 
-## Round 15 (2026-11-25): better effects around the same model (waiting for Anthony's ratings)
+## Round 15 (2026-11-25): better effects around the same model (rated)
 
 Anthony said yes to: one sound at a time, several takes with a judge, snap to the action,
 per-sound cleanup and placing, and descriptions in the model's own style. All new settings
@@ -15,7 +15,7 @@ picture-sync scorer); noise reduction only on key moments.
 Run: `SOUND_APP=ai-sound-designer-dev python tune.py <video> --variants variants_round15.json`.
 Tiles are on the Sound Tuning Room (run `20261125-r15`), files in /mnt/project-files/round15/.
 Cost $0.65. Best of 3 takes roughly triples the effects cost per video (about $0.08 to $0.22 here).
-Not live. Next: apply whatever Anthony scores highest.
+Rated 2026-11-25 (ratings_round15.csv): round 14 winner 2, new descriptions only 4 (winner; already the default since it is in the planner), one sound at a time 2, with best of 3 takes 2, snap + cleanup + place 3, everything 3. So the new options stay off. Not live.
 
 ## Layered effects, pro mix, Stable Audio, edit insights (2026-11-25, round 14 waiting for ratings)
 
