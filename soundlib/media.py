@@ -257,3 +257,33 @@ def still_clip(path: str | Path, at: float, seconds: float, out: Path) -> Path:
          "-t", f"{seconds:.3f}", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
          "-pix_fmt", "yuv420p", out])
     return out
+
+
+def action_instant(path: str | Path, near: float, reach: float) -> float | None:
+    """The instant, within `reach` seconds of `near`, where the picture changes most
+    from one frame to the next (a hit, a snap, something landing), or None when
+    nothing stands out. Used to put a key moment's sound on the exact frame."""
+    import cv2
+
+    cap = cv2.VideoCapture(str(path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    first = max(0, int((near - reach) * fps) - 1)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, first)
+    changes, last = [], None
+    for n in range(first, int((near + reach) * fps) + 2):
+        ok, frame = cap.read()
+        if not ok:
+            break
+        small = cv2.cvtColor(cv2.resize(frame, (96, 96)), cv2.COLOR_BGR2GRAY).astype(np.float32)
+        if last is not None:
+            changes.append((n / fps, float(np.mean(np.abs(small - last)))))
+        last = small
+    cap.release()
+    if len(changes) < 4:
+        return None
+    values = np.array([c[1] for c in changes])
+    best = int(np.argmax(values))
+    # A cut changes the whole picture at once and is not an action: leave those alone.
+    if values[best] < 2.0 * (np.median(values) + 0.3) or values[best] > 45.0:
+        return None
+    return round(changes[best][0], 3)

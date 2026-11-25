@@ -15,11 +15,16 @@ from pydantic import BaseModel
 from . import config as C
 
 
+Position = Literal["left", "center", "right"]
+
+
 class Effect(BaseModel):
     start: float
     end: float
     description: str
     loudness: Literal["quiet", "medium", "loud"]
+    source: str = ""
+    position: Position = "center"
 
 
 class ShotPlan(BaseModel):
@@ -45,6 +50,7 @@ class Moment(BaseModel):
     description: str
     loudness: Literal["quiet", "medium", "loud"]
     layers: list[MomentLayer] = []
+    position: Position = "center"
 
 
 Room = Literal["tiny enclosed space", "small room", "medium room", "large room", "hall", "outdoors"]
@@ -70,7 +76,16 @@ For every shot, list the sound effects that should be heard:
 artist would label it: the source, the material, the action ("vacuum cleaner motor \
 humming steadily over carpet", "ceramic mug set down on a wooden table"). Describe only \
 sounds, never the picture. No music, no speech, no brand names.
+- Write each description as one plain audio caption of that single sound, the way a \
+sound library labels a recording. One sound per effect: never join two sounds in one \
+description.
 - loudness is how prominent it should be in the mix.
+- source is a short name for the thing making the sound, one to three words, lower \
+case ("vacuum motor", "footsteps", "suction air"). Use EXACTLY the same source name \
+every time the same thing is heard again in a later shot, so a sound that carries \
+across the cuts can be made as one continuous sound.
+- position is where that source is on screen: left, center or right. Use center when \
+it fills the frame, is off screen, or is everywhere (air, room).
 - Every shot needs at least one effect. If nothing obvious happens, describe the room \
 tone or ambience that fits what is visible. Prefer one to four effects per shot.
 
@@ -93,7 +108,8 @@ Then list the key moments: single instants where something visibly happens and a
 viewer would expect to hear it right then (a grab, an impact, a snap, a door slam, a \
 switch flipping, something landing). For each: time in seconds (the instant it happens, \
 judged from the frame timestamps), a description of just that one short sound, and its \
-loudness. Only list moments you can actually see between or in the frames; do not guess. \
+loudness, and its position on screen (left, center or right). Only list moments you \
+can actually see between or in the frames; do not guess. \
 Continuous sounds (a motor, wind, footsteps) belong in the shot effects, not here. \
 At most eight; an empty list is fine.
 
@@ -274,11 +290,15 @@ def clean_plan(plan: dict, shots: list[dict], duration: float) -> dict:
                 start, end = shot["start"], shot["end"]
             text = " ".join(fx["description"].split())
             if text:
+                source = " ".join((fx.get("source") or "").lower().split())[:40]
                 effects.append({"start": round(start, 2), "end": round(end, 2),
-                                "description": text, "loudness": fx["loudness"]})
+                                "description": text, "loudness": fx["loudness"],
+                                "source": source or _shorten(text, 3).lower(),
+                                "position": fx.get("position") or "center"})
         if not effects:
             effects = [{"start": shot["start"], "end": shot["end"],
-                        "description": "soft natural room ambience", "loudness": "quiet"}]
+                        "description": "soft natural room ambience", "loudness": "quiet",
+                        "source": "room ambience", "position": "center"}]
         cleaned.append({"shot": shot["index"], "effects": effects})
     plan["shots"] = cleaned
     moments = []
@@ -292,7 +312,8 @@ def clean_plan(plan: dict, shots: list[dict], duration: float) -> dict:
                     seen.add(words.lower())
                     layers.append({"role": layer["role"], "description": words})
             moments.append({"time": round(float(m["time"]), 2), "description": text,
-                            "loudness": m["loudness"], "layers": layers})
+                            "loudness": m["loudness"], "layers": layers,
+                            "position": m.get("position") or "center"})
     plan["moments"] = moments[: C.MAX_MOMENTS]
     plan["ambience"] = " ".join((plan.get("ambience") or "").split()).rstrip(".")
     music = plan["music"]
@@ -428,3 +449,51 @@ def settle_sections(sections: list[dict], bpm: int, duration: float) -> list[dic
             if a["start"] + bar <= t <= b["end"] - bar:
                 a["end"] = b["start"] = round(t, 3)
     return secs
+
+
+def source_spans(plan: dict, duration: float) -> list[dict]:
+    """The plan regrouped by what makes each sound, for making one sound at a time.
+
+    Effects with the same source that follow straight on from each other (across cuts
+    too) become one span, so a vacuum heard over five shots is one continuous sound.
+    Each span is then cut into stretches the effects model can make in one go; each
+    stretch keeps the description that was planned for that part of the video.
+    """
+    rank = {"quiet": 0, "medium": 1, "loud": 2}
+    spans: list[dict] = []
+    flat = sorted(({**fx, "shot": s["shot"]} for s in plan["shots"] for fx in s["effects"]),
+                  key=lambda f: (f["start"], f["end"]))
+    for fx in flat:
+        span = next((sp for sp in reversed(spans) if sp["source"] == fx["source"]
+                     and fx["start"] - sp["end"] < 0.35), None)
+        if span is None:
+            span = {"source": fx["source"], "start": fx["start"], "end": fx["end"], "parts": []}
+            spans.append(span)
+        span["end"] = max(span["end"], fx["end"])
+        span["parts"].append(fx)
+    longest = float(C.SOURCE_MAX_SECONDS)
+    pieces = []
+    for span in spans:
+        if span["end"] - span["start"] < float(C.FOLEY_MIN_SEGMENT_SECONDS):   # too short for the model
+            mid = (span["start"] + span["end"]) / 2
+            span["start"] = max(0.0, min(mid - 0.5, duration - 1.0))
+            span["end"] = min(duration, span["start"] + 1.0)
+        length = span["end"] - span["start"]
+        count = max(1, int(np.ceil(length / longest)))
+        for n in range(count):
+            a = span["start"] + n * length / count
+            b = span["start"] + (n + 1) * length / count
+            inside = [p for p in span["parts"] if p["end"] > a and p["start"] < b] or span["parts"]
+            main = max(inside, key=lambda p: min(p["end"], b) - max(p["start"], a))
+            over = float(C.FOLEY_OVERLAP_SECONDS)
+            pieces.append({
+                "source": span["source"], "prompt": main["description"].rstrip("."),
+                "start": round(a, 3), "end": round(b, 3),
+                "clip_start": round(max(0.0, a - over), 3), "clip_end": round(min(duration, b + over), 3),
+                "loudness": max((p["loudness"] for p in inside), key=rank.get),
+                "position": main.get("position", "center"),
+                "shot": inside[0]["shot"], "shots": sorted({p["shot"] for p in inside})})
+    pieces.sort(key=lambda p: (p["start"], p["source"]))
+    for i, piece in enumerate(pieces):
+        piece["index"] = 500 + i        # its own run of numbers, so its own random seeds
+    return pieces

@@ -187,8 +187,14 @@ class Foley:
         self.load_seconds = time.time() - started
         self.reported_load = False
 
-    def _match_scores(self, prompt: str, audios: list, sample_rate: int) -> list[float]:
-        """How well each audio matches the words, from the CLAP model (higher is better)."""
+    def _match_scores(self, prompt: str, audios: list, sample_rate: int,
+                      judge: dict | None = None) -> list[float]:
+        """How well each audio matches the words, from the CLAP model (higher is better).
+
+        With a judge ({"reject": [descriptions], "onset": seconds or None}) a take is
+        marked down for sounding like any rejected description (speech, music) more
+        than a little, and for starting far from the instant the action happens.
+        """
         import torch
         import torchaudio
         from transformers import ClapModel, ClapProcessor
@@ -205,17 +211,34 @@ class Foley:
             waves.append(mono.numpy())
         with torch.no_grad():
             a = self.clap_processor(audios=waves, sampling_rate=48000, return_tensors="pt")
-            t = self.clap_processor(text=[prompt], return_tensors="pt", padding=True)
+            reject = list((judge or {}).get("reject") or [])
+            t = self.clap_processor(text=[prompt, *reject], return_tensors="pt", padding=True)
             audio_emb = self.clap.get_audio_features(**{k: v.to("cuda") for k, v in a.items()})
             text_emb = self.clap.get_text_features(**{k: v.to("cuda") for k, v in t.items()})
             audio_emb = torch.nn.functional.normalize(audio_emb, dim=-1)
             text_emb = torch.nn.functional.normalize(text_emb, dim=-1)
-            return [float(x) for x in (audio_emb @ text_emb.T).squeeze(-1).cpu()]
+            sims = (audio_emb @ text_emb.T).cpu().numpy()
+        scores = []
+        for wave, row in zip(waves, sims):
+            score = float(row[0])
+            if reject:      # only a clear likeness counts against a take
+                score -= max(0.0, float(row[1:].max()) - 0.15)
+            onset = (judge or {}).get("onset")
+            if onset is not None and len(wave) > 4800:
+                import numpy as np
+
+                frames = wave[: len(wave) // 480 * 480].reshape(-1, 480)
+                level = 10 * np.log10((frames ** 2).mean(axis=1) + 1e-12)
+                began = float(np.argmax(level > level.max() - 12.0)) / 100.0
+                score -= 0.3 * min(abs(began - float(onset)), 0.5)
+            scores.append(score)
+        return scores
 
     @modal.method()
     def generate(self, clip: bytes, prompt: str, seed: int = C.SEED,
                  steps: int = C.FOLEY_STEPS, guidance: float = C.FOLEY_GUIDANCE,
-                 neg_prompt: str = C.FOLEY_NEG_PROMPT, candidates: int = 1):
+                 neg_prompt: str = C.FOLEY_NEG_PROMPT, candidates: int = 1,
+                 judge: dict | None = None):
         """Generate sound for one short silent clip. Streams back FLAC audio.
 
         With candidates > 1, makes that many versions (different seeds) and keeps the
@@ -247,7 +270,7 @@ class Foley:
                 made.append(audio[0])
         scores, best = [], 0
         if len(made) > 1:
-            scores = self._match_scores(prompt, made, int(sample_rate))
+            scores = self._match_scores(prompt, made, int(sample_rate), judge)
             best = max(range(len(made)), key=lambda i: scores[i])
         meta = {"gpu_seconds": time.time() - started, "load_seconds": 0.0, "gpu": C.GPU_TYPE,
                 "scores": scores, "picked": best}

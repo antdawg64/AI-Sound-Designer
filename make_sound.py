@@ -51,6 +51,14 @@ def say(text: str) -> None:
 
 # --- Cloud backend (Modal) -----------------------------------------------------
 
+def _judge(seg: dict) -> dict | None:
+    """How the best of several takes is picked for this sound (TAKE_JUDGE strict)."""
+    if C.TAKE_JUDGE != "strict" or int(C.FOLEY_CANDIDATES) <= 1:
+        return None
+    onset = seg["time"] - seg["clip_start"] if "time" in seg and seg.get("role", "main") == "main" else None
+    return {"reject": list(C.TAKE_REJECT), "onset": onset}
+
+
 class Cloud:
     """Talks to the deployed Modal app."""
 
@@ -145,7 +153,7 @@ class Cloud:
             self.foley.generate.remote_gen(
                 clip.read_bytes(), prompt, seed=C.SEED + seg["index"], steps=C.FOLEY_STEPS,
                 guidance=C.FOLEY_GUIDANCE, neg_prompt=C.FOLEY_NEG_PROMPT,
-                candidates=int(C.FOLEY_CANDIDATES)),
+                candidates=int(C.FOLEY_CANDIDATES), judge=_judge(seg)),
             f"effects segment {seg['index']}")
 
     def effects_text(self, asks: list[dict]) -> list[tuple[np.ndarray, int]]:
@@ -208,9 +216,10 @@ class TestTones:
             "summary": "TEST PLAN (no AI was used)",
             "shots": [{"shot": s["index"], "effects": [
                 {"start": s["start"], "end": s["end"], "description": "test noise",
+                 "source": "test machine", "position": ("left", "center", "right")[s["index"] % 3],
                  "loudness": ("quiet", "medium", "loud")[s["index"] % 3]}]} for s in shots],
             "moments": [{"time": round(duration * f, 2), "description": f"test moment {n}",
-                         "loudness": "loud",
+                         "loudness": "loud", "position": "right",
                          "layers": [{"role": "whoosh", "description": f"test whoosh {n}"},
                                     {"role": "detail", "description": f"test detail {n}"}][: n % 3]}
                         for n, f in enumerate((0.2, 0.5, 0.8), start=1)],
@@ -324,7 +333,8 @@ class Cached:
         key = self._key("fx", hashlib.sha256(clip.read_bytes()).hexdigest(), prompt,
                         C.SEED + seg["index"], C.FOLEY_STEPS, C.FOLEY_GUIDANCE,
                         C.FOLEY_NEG_PROMPT, C.FOLEY_MODEL_SIZE,
-                        *([f"best of {int(C.FOLEY_CANDIDATES)}"] if int(C.FOLEY_CANDIDATES) > 1 else []))
+                        *([f"best of {int(C.FOLEY_CANDIDATES)}"] if int(C.FOLEY_CANDIDATES) > 1 else []),
+                        *([_judge(seg)] if _judge(seg) else []))
         return self._audio(key, lambda: self.backend.effects(clip, prompt, seg))
 
     def effects_text(self, asks: list[dict]) -> list[tuple[np.ndarray, int]]:
@@ -372,6 +382,29 @@ class Cached:
 # --- The pipeline -----------------------------------------------------------------
 
 PARTS = ("both", "effects", "music")
+
+
+def _snap(video: Path, spot: dict, duration: float) -> None:
+    """Slide a key moment's sound so the instant it really starts lands on the instant
+    of the action (MOMENT_SNAP). The action is looked for in the picture near the
+    planned time; the sound's start is found by listening to it."""
+    sr, reach = C.SAMPLE_RATE, float(C.MOMENT_SNAP_MAX_SECONDS)
+    seen = media.action_instant(video, spot["time"], reach)
+    target = seen if seen is not None else spot["time"]
+    starts = spot["clip_start"] + (mixing.onset_sample(spot["audio"], 12.0) + int(0.015 * sr)) / sr
+    shift = target - starts
+    spot["snap"] = {"planned": spot["time"], "seen_in_picture": seen, "sound_started": round(starts, 3),
+                    "moved_seconds": round(shift, 3) if abs(shift) <= reach else 0.0}
+    if abs(shift) > reach or abs(shift) < 0.01:
+        return          # too far off to be the same event: leave it where the model put it
+    length = spot["clip_end"] - spot["clip_start"]
+    spot["clip_start"] = round(spot["clip_start"] + shift, 3)
+    if spot["clip_start"] < 0:
+        spot["audio"] = spot["audio"][int(round(-spot["clip_start"] * sr)):]
+        length += spot["clip_start"]
+        spot["clip_start"] = 0.0
+    spot["clip_end"] = round(min(duration, spot["clip_start"] + length), 3)
+    spot["time"] = round(target, 3)
 
 
 def text_effects(plan: dict, duration: float, backend, layered: bool) -> tuple[list, list, dict | None]:
@@ -522,13 +555,22 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
 
         say("3/6 Generating sound effects" if parts != "music" else "3/6 Skipping sound effects (music only)")
         from_text = C.SFX_ENGINE == "stable_audio" and parts != "music"
-        segments = media.plan_segments(shots, duration) if parts != "music" and not from_text else []
+        apart = C.SFX_SOURCES == "separate" and parts != "music" and not from_text
+        segments = media.plan_segments(shots, duration) if parts != "music" and not from_text and not apart else []
+        if apart:   # one sound at a time: each source made alone, from where it is heard
+            segments = planning.source_spans(plan, duration)
+            for seg in segments:
+                seg["separate"], seg["gain_db"] = True, 0.0
+                clip = media.cut_clip(video, seg, work / f"source{seg['index']:03d}.mp4")
+                say(f"    {seg['start']:.1f}-{seg['end']:.1f}s {seg['source']}: {seg['prompt']}")
+                audio, sr = backend.effects(clip, seg["prompt"], seg)
+                seg["audio"] = media.to_stereo_48k(audio, sr)
         spots = []
         layered = C.SFX_LAYERING == "layered"
         text_ambience = None
         if from_text:
             segments, spots, text_ambience = text_effects(plan, duration, backend, layered)
-        for seg in segments if not from_text else []:
+        for seg in segments if not from_text and not apart else []:
             seg["prompt"], seg["gain_db"] = planning.segment_prompt(plan, seg)
             clip = media.cut_clip(video, seg, work / f"clip{seg['index']:03d}.mp4")
             say(f"    {seg['start']:.1f}-{seg['end']:.1f}s: {seg['prompt']}")
@@ -537,7 +579,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         if C.PLAN_DETAIL == "close" and parts != "music" and not from_text:
             for i, m in enumerate(plan["moments"]):
                 spot = {"index": 1000 + i, "time": m["time"], "prompt": m["description"],
-                        "gain_db": C.LOUDNESS_DB[m["loudness"]],
+                        "gain_db": C.LOUDNESS_DB[m["loudness"]], "position": m.get("position"),
                         "clip_start": round(max(0.0, m["time"] - C.SPOT_BEFORE_SECONDS), 3),
                         "clip_end": round(min(duration, m["time"] + C.SPOT_AFTER_SECONDS), 3)}
                 if spot["clip_end"] - spot["clip_start"] < 0.6:
@@ -551,6 +593,8 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                 finally:
                     C.override({"foley_candidates": usual})
                 spot["audio"] = media.to_stereo_48k(audio, sr)
+                if C.MOMENT_SNAP:
+                    _snap(video, spot, duration)
                 spots.append(spot)
                 # Film-style layering: the supporting sounds of this moment, each made
                 # on its own so it is its own clip (a whoosh leading in, a detail after).

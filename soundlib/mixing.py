@@ -153,6 +153,60 @@ def peak_sample(audio: np.ndarray) -> int:
     return int(np.argmax(level)) * hop if len(level) else 0
 
 
+def pan(audio: np.ndarray, position: str | None) -> np.ndarray:
+    """Move a sound towards the side of the screen its source is on (SFX_PAN: how far)."""
+    amount = float(C.SFX_PAN) * {"left": -1.0, "right": 1.0}.get(position or "center", 0.0)
+    if not amount or audio.shape[1] != 2:
+        return audio
+    angle = (amount + 1.0) * np.pi / 4
+    gains = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32) * np.sqrt(2.0)
+    return (audio * gains[None, :]).astype(np.float32)
+
+
+def clean_clip(audio: np.ndarray, moment: bool = False) -> np.ndarray:
+    """Tidy one generated sound (SFX_CLEANUP): rumble out, and for a key moment the
+    hiss between hits pushed down and the attack sharpened a little.
+
+    A steady sound (a motor, wind) is only filtered: its own noise IS the sound, so
+    taking "noise" out of it would damage it.
+    """
+    if not C.SFX_CLEANUP or len(audio) < 2048:
+        return audio
+    sr = C.SAMPLE_RATE
+    audio = _highpass(audio, 40.0)
+    if not moment:
+        return audio
+    hop = int(0.005 * sr)
+    level = _frame_db(audio.mean(axis=1), hop, int(0.02 * sr))
+    top = float(level.max())
+    if top < -80:
+        return audio
+    # Downward expander: everything more than 30 dB under the loudest part is pushed
+    # down further (by up to 12 dB), gliding so that tails are not chopped.
+    under = np.clip((top - 30.0) - level, 0.0, 24.0) * 0.5
+    # Attack: a short lift (up to 3 dB) wherever the level jumps, fading over 40 ms.
+    rise = np.clip(np.diff(level, prepend=level[0]), 0.0, 12.0) / 12.0 * 3.0
+    lift = np.zeros_like(rise)
+    for i, r in enumerate(rise):
+        lift[i] = max(r, lift[i - 1] * 0.55 if i else 0.0)
+    curve = _glide(-under, 0.005, 0.004, 0.06) + lift
+    gain = 10 ** (np.interp(np.arange(len(audio)), np.arange(len(curve)) * hop, curve) / 20)
+    return (audio * gain[:, None]).astype(np.float32)
+
+
+def source_layer(seg: dict, duration: float) -> np.ndarray:
+    """One stretch of one sound source (SFX_SOURCES separate) as a full-length layer:
+    tidied, set to the level its planned prominence calls for, placed left or right,
+    and crossfaded into the next stretch of the same source."""
+    audio = clean_clip(level_clip(seg["audio"]))
+    level = _loud_part_db(audio.mean(axis=1))
+    if level < -80:
+        return np.zeros((int(round(duration * C.SAMPLE_RATE)), 2), dtype=np.float32)
+    gain_db = -24.0 + float(C.SHOT_LEVEL_DB[seg.get("loudness", "medium")]) - level
+    return stitch_effects([{**seg, "audio": pan(audio * 10 ** (gain_db / 20), seg.get("position")),
+                            "gain_db": 0.0, "levelled": True}], duration)
+
+
 def text_effect_layer(seg: dict, duration: float) -> np.ndarray:
     """One sound made from its description alone, placed at its planned time as a
     full-length layer, at the level its planned prominence calls for."""
@@ -189,7 +243,7 @@ def stitch_effects(segments: list[dict], duration: float) -> np.ndarray:
     for seg in segments:
         # The effects model returns each clip at its own arbitrary level (some 30 dB
         # quieter than others), so bring every clip to one level before the plan's gain.
-        audio = level_clip(seg["audio"]) * (10 ** (seg.get("gain_db", 0.0) / 20))
+        audio = seg["audio"] if seg.get("levelled") else level_clip(seg["audio"]) * (10 ** (seg.get("gain_db", 0.0) / 20))
         want = int(round((seg["clip_end"] - seg["clip_start"]) * sr))
         if len(audio) < want:  # the model may return slightly less than asked for
             audio = np.concatenate([audio, np.zeros((want - len(audio), 2), dtype=np.float32)])
@@ -221,14 +275,14 @@ def _spot_audio(spot: dict) -> np.ndarray:
     and is gone just after the moment itself; a "detail" follows it.
     """
     sr = C.SAMPLE_RATE
-    audio = level_clip(spot["audio"])
     role = spot.get("role", "main")
+    audio = clean_clip(level_clip(spot["audio"]), moment=role == "main")
     if role == "whoosh":   # keep only the lead-in: the hit itself belongs to the main layer
         keep = int(round((spot["time"] - spot["clip_start"] + 0.1) * sr))
         audio = audio[: max(keep, int(0.3 * sr))]
     if C.SFX_LEVELING == "by_shot":
         audio = audio * 10 ** ((-24.0 - _loud_part_db(audio.mean(axis=1))) / 20)
-    audio = audio * (10 ** ((spot["gain_db"] + C.SPOT_GAIN_DB) / 20))
+    audio = pan(audio * (10 ** ((spot["gain_db"] + C.SPOT_GAIN_DB) / 20)), spot.get("position"))
     audio = audio.astype(np.float32).copy()
     seconds_in, seconds_out = {"whoosh": (0.25, 0.15), "detail": (0.08, 0.4)}.get(role, (0.05, 0.3))
     fade_in, fade_out = min(int(seconds_in * sr), len(audio) // 2), min(int(seconds_out * sr), len(audio) // 2)
@@ -321,7 +375,9 @@ def effects_layers(segments: list[dict], spots: list[dict], shot_levels: list[di
     sr = C.SAMPLE_RATE
     total = int(round(duration * sr))
     from_text = [seg for seg in segments if seg.get("text")]
-    layers = [stitch_effects([seg], duration) for seg in segments if not seg.get("text")]
+    apart = [seg for seg in segments if seg.get("separate")]
+    layers = [stitch_effects([seg], duration) for seg in segments
+              if not seg.get("text") and not seg.get("separate")]
 
     def together() -> np.ndarray:
         out = np.zeros((total, 2), dtype=np.float32)
@@ -338,6 +394,7 @@ def effects_layers(segments: list[dict], spots: list[dict], shot_levels: list[di
     if shot_levels is not None and layers:
         scale(balance_curve(together(), shot_levels))
     # Sounds made from text are each levelled on their own (order kept: segments first).
+    layers = layers + [source_layer(seg, duration) for seg in apart]
     layers = layers + [text_effect_layer(seg, duration) for seg in from_text]
     for spot in spots:
         audio = _spot_audio(spot)

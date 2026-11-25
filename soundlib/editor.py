@@ -117,6 +117,8 @@ def build(out_dir: Path, *, segments: list[dict], spots: list[dict], layers: lis
             clip["loudness"] = max((loudness_of.get(n, "medium") for n in clip["shots"]), key=rank.get)
             if item.get("loudness"):     # a sound made on its own knows its own prominence
                 clip["loudness"] = item["loudness"]
+            if item.get("source"):
+                clip["source"] = item["source"]
         clips.append(clip)
 
     # What the browser plays for the music. With a voice, the dip under the voice is
