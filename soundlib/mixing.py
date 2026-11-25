@@ -137,6 +137,13 @@ def add_spots(sfx: np.ndarray, spots: list[dict]) -> np.ndarray:
         a = int(round(spot["clip_start"] * sr))
         b = min(len(out), a + len(audio))
         if b > a:
+            dip = float(C.SPOT_BED_DIP_DB)
+            if dip < 0:   # the background makes room for the moment, easing down and back
+                ramp = min(int(0.15 * sr), (b - a) // 2)
+                shape = np.ones(b - a, dtype=np.float32)
+                shape[:ramp] = np.linspace(0.0, 1.0, ramp, dtype=np.float32)
+                shape[-ramp:] = np.linspace(1.0, 0.0, ramp, dtype=np.float32)
+                out[a:b] *= (10 ** (dip * shape / 20))[:, None]
             out[a:b] += audio[: b - a]
     return out
 

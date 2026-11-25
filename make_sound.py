@@ -355,6 +355,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         cues = None
         if C.MUSIC_SCORING != "single":
             cues = planning.clean_cues(backend.cues(frames, shots, duration, plan), shots, duration)
+            cues["sections"] = planning.settle_sections(cues["sections"], bpm, duration)
             for sec in cues["sections"]:
                 say(f"    {sec['start']:.1f}-{sec['end']:.1f}s, intensity {sec['intensity']}: {sec['description']}")
             for hit in cues["hits"]:

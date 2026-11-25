@@ -375,3 +375,27 @@ def section_caption(music: dict, flavour: str, section: dict) -> str:
     extra = SECTION_FEEL[section["intensity"] - 1] if C.SECTION_INSTRUMENTS == "shared" \
         else section["description"]
     return music_caption(music, ", ".join(x for x in (flavour, extra) if x))
+
+
+def settle_sections(sections: list[dict], bpm: int, duration: float) -> list[dict]:
+    """Tidy the cue sheet's sections for composing: fold very short ones into the next
+    (SECTION_MIN_SECONDS) and move the changes onto bar lines (SECTION_SNAP "bar")."""
+    secs = [dict(s) for s in sections]
+    least = float(C.SECTION_MIN_SECONDS)
+    i = 0
+    while least > 0 and len(secs) > 1 and i < len(secs):
+        if secs[i]["end"] - secs[i]["start"] >= least:
+            i += 1
+        elif i + 1 < len(secs):
+            secs[i + 1]["start"] = secs[i]["start"]
+            del secs[i]
+        else:
+            secs[i - 1]["end"] = secs[i]["end"]
+            del secs[i]
+    if C.SECTION_SNAP == "bar":
+        bar = 240.0 / bpm
+        for a, b in zip(secs, secs[1:]):
+            t = round(b["start"] / bar) * bar
+            if a["start"] + bar <= t <= b["end"] - bar:
+                a["end"] = b["start"] = round(t, 3)
+    return secs

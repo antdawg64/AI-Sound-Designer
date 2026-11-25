@@ -463,3 +463,23 @@ A fresh run of `make_sound.py` with the new defaults passed all checks (180 GPU 
 planning, $0.30; it does not share the tuning cache). Phase 2 Modal spend about $1.50.
 
 | 2026-11-25 | Round 10 confirm run with new defaults | 180 | $0.30 |
+
+## Round 11 (2026-11-25): sharp change at 0:04 and buried moment effects, waiting for ratings
+
+Anthony: ":04 had a sharp transition" and "we missed the cable shooting out from his
+arm". Measured: the 3.2 s opening section was about 10 dB quieter than the next one; the
+cable ("grapple line firing", moment at 16.65 s) was planned and generated but mixed
+8 dB down (`spot_gain_db`) under the vacuum roar. New settings:
+
+- `section_min_seconds`: sections shorter than this fold into the next one.
+- `section_snap: bar`: section changes move to the nearest bar line
+  (`planning.settle_sections`).
+- `spot_bed_dip_db`: the background effects drop briefly under each moment effect.
+
+Page run `20261125-054755`: current, no short sections, on the bar, both, both evened,
+moments louder (`spot_gain_db` 0), moments louder with the background making room.
+Still unverified because Claude cannot hear: whether each spot clip really sounds like
+its description. If a louder zip is still wrong, next step is a text-only effect for
+each moment (Stable Audio Open, see licence notes in CLAUDE.md).
+
+| 2026-11-25 | Round 11: section tidy-up, louder moments | 80 | $0.04 est. |
