@@ -1,0 +1,57 @@
+{
+  "_about": "Round 11 (2026-11-25): the sharp change at 0:04 (Anthony: ':04 had a sharp transition'). Measured: the 3-second opening section is about 10 dB quieter than what follows. Earlier rounds are in variants_round*.json. Also: exact-moment effects were getting buried (Anthony: 'we missed the cable shooting out from his arm'; it was planned at 16.65 s but mixed 8 dB down under the vacuum).",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "no_short",
+      "label": "No very short sections",
+      "setting": "section_min_seconds",
+      "value": 5.0,
+      "why": "The three-second opening was its own very quiet section, then the music jumped. Sections under five seconds are now folded into the next one."
+    },
+    {
+      "id": "on_the_bar",
+      "label": "Changes land on the music's bar lines",
+      "setting": "section_snap",
+      "value": "bar",
+      "why": "The music changes on its own strong beat nearest the cut, instead of exactly on the cut, so the change sounds intended."
+    },
+    {
+      "id": "both",
+      "label": "No short sections, changes on bar lines",
+      "settings": {
+        "section_min_seconds": 5.0,
+        "section_snap": "bar"
+      },
+      "why": "Both of the above."
+    },
+    {
+      "id": "both_evened",
+      "label": "Both, with the volume gently evened out",
+      "settings": {
+        "section_min_seconds": 5.0,
+        "section_snap": "bar",
+        "music_even_out": 0.5
+      },
+      "why": "Both of the above, and quiet and loud stretches of the music are pulled a little closer together."
+    },
+    {
+      "id": "moments_louder",
+      "label": "Key moment effects louder",
+      "setting": "spot_gain_db",
+      "value": 0,
+      "why": "The exact-moment effects (the cable firing, the hook, the snaps) were mixed well below the background effects. Here they are 8 dB louder. Music is unchanged from Current."
+    },
+    {
+      "id": "moments_clear",
+      "label": "Key moment effects louder, background makes room",
+      "settings": {
+        "spot_gain_db": 0,
+        "spot_bed_dip_db": -8.0
+      },
+      "why": "As above, and the background effects such as the vacuum roar drop briefly under each key moment so it cuts through. Music is unchanged from Current."
+    }
+  ]
+}

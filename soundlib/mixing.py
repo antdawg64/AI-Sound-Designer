@@ -82,6 +82,38 @@ def even_out(data: np.ndarray, amount: float, max_boost_db: float,
     return (data * (10 ** (curve / 20))[:, None]).astype(np.float32)
 
 
+def _loud_part_db(mono: np.ndarray) -> float:
+    """Level of the loud parts of a sound: the 90th percentile of its 100 ms levels.
+    Unlike a plain average it reads a few sharp sounds and a steady roar alike."""
+    hop = int(0.1 * C.SAMPLE_RATE)
+    if len(mono) < hop:
+        return -120.0
+    frames = mono[: len(mono) // hop * hop].reshape(-1, hop).astype(np.float64)
+    levels = 10 * np.log10(np.mean(frames ** 2, axis=1) + 1e-12)
+    return float(np.percentile(levels, 90))
+
+
+def balance_shots(sfx: np.ndarray, shots: list[dict]) -> np.ndarray:
+    """Bring every shot's effects to the level its prominence calls for.
+
+    `shots` items: start, end, loudness (quiet, medium or loud). Each shot's loud parts
+    are moved to SHOT_LEVEL_DB[loudness] relative to one reference, by at most
+    SHOT_LEVEL_MAX_CHANGE_DB, gliding between shots.
+    """
+    sr, mono = C.SAMPLE_RATE, sfx.mean(axis=1)
+    times, gains = [], []
+    for shot in shots:
+        level = _loud_part_db(mono[int(shot["start"] * sr):int(shot["end"] * sr)])
+        want = -24.0 + C.SHOT_LEVEL_DB[shot["loudness"]]
+        limit = float(C.SHOT_LEVEL_MAX_CHANGE_DB)
+        gains.append(0.0 if level < -80 else float(np.clip(want - level, -limit, limit)))
+        times.append(shot["start"])
+    if not gains:
+        return sfx
+    curve = _smooth_steps(times, gains, len(sfx), 0.3)
+    return (sfx * (10 ** (curve / 20))[:, None]).astype(np.float32)
+
+
 def stitch_effects(segments: list[dict], duration: float) -> np.ndarray:
     """Lay the effect clips on one timeline, crossfading where neighbours overlap.
 
@@ -127,7 +159,10 @@ def add_spots(sfx: np.ndarray, spots: list[dict]) -> np.ndarray:
     sr = C.SAMPLE_RATE
     out = sfx.copy()
     for spot in spots:
-        audio = level_clip(spot["audio"]) * (10 ** ((spot["gain_db"] + C.SPOT_GAIN_DB) / 20))
+        audio = level_clip(spot["audio"])
+        if C.SFX_LEVELING == "by_shot":
+            audio = audio * 10 ** ((-24.0 - _loud_part_db(audio.mean(axis=1))) / 20)
+        audio = audio * (10 ** ((spot["gain_db"] + C.SPOT_GAIN_DB) / 20))
         audio = audio.copy()
         fade_in, fade_out = min(int(0.05 * sr), len(audio) // 2), min(int(0.3 * sr), len(audio) // 2)
         if fade_in:

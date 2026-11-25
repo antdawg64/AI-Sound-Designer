@@ -1,0 +1,7 @@
+video,variant,setting,value,rating,note,rated_at
+mitey-vacuum-short-living-room-silent,both,(several),"{""section_min_seconds"": 5.0, ""section_snap"": ""bar""}",4,,2026-11-25T06:22:00Z
+mitey-vacuum-short-living-room-silent,both_evened,(several),"{""section_min_seconds"": 5.0, ""section_snap"": ""bar"", ""music_even_out"": 0.5}",4,,2026-11-25T06:22:00Z
+mitey-vacuum-short-living-room-silent,on_the_bar,section_snap,"""bar""",3,,2026-11-25T06:22:00Z
+mitey-vacuum-short-living-room-silent,no_short,section_min_seconds,5.0,2,,2026-11-25T06:22:00Z
+mitey-vacuum-short-living-room-silent,moments_louder,spot_gain_db,0,3,,2026-11-25T06:22:00Z
+mitey-vacuum-short-living-room-silent,moments_clear,(several),"{""spot_gain_db"": 0, ""spot_bed_dip_db"": -8.0}",2,,2026-11-25T06:22:00Z

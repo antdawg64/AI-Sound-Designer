@@ -483,3 +483,26 @@ its description. If a louder zip is still wrong, next step is a text-only effect
 each moment (Stable Audio Open, see licence notes in CLAUDE.md).
 
 | 2026-11-25 | Round 11: section tidy-up, louder moments | 80 | $0.04 est. |
+
+Round 11 result (`ratings_round11.csv`, current not rated): both 4, both evened 4, on
+the bar 3, no short 2, moments louder 3, moments louder with room 2. Applied by hand:
+`section_min_seconds: 5`, `section_snap: bar`. Louder moments did not help, so not
+applied.
+
+## Round 12 (2026-11-25): effects balance, waiting for Anthony's ratings
+
+Anthony: "Some sound effects are a lot louder than others. It should only be louder when
+it makes sense... I can't hear the vacuum... the vacuum is the main thing in this scene."
+Cause: every generated clip was set to one average level, so sparse sharp sounds
+(footsteps) peaked as high as anything, and inside a clip the vacuum could fade away.
+
+- `sfx_leveling: by_shot` (`mixing.balance_shots`): each shot's loud parts are brought
+  to a level set only by the plan's prominence for that shot (`shot_level_db`).
+- `sfx_even_out`: lifts stretches where a steady sound drops away.
+- `spot_candidates`: best-of-N (CLAP) for the exact-moment effects only.
+
+Page run `20261125-063334`: current, balanced, balanced steady, balanced louder
+(effects 3 dB over music), balanced with best-of-4 moments, balanced with every planned
+sound in the prompts (`sfx_prompt_style: short`).
+
+| 2026-11-25 | Round 12: best-of-4 moments, every-sound prompts | 197 | $0.11 est. |

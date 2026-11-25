@@ -329,6 +329,13 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             audio, sr = backend.effects(clip, seg["prompt"], seg)
             seg["audio"] = media.to_stereo_48k(audio, sr)
         sfx = mixing.stitch_effects(segments, duration)
+        sfx = mixing.even_out(sfx, float(C.SFX_EVEN_OUT), float(C.SFX_EVEN_OUT_MAX_DB))
+        if C.SFX_LEVELING == "by_shot":
+            rank = {"quiet": 0, "medium": 1, "loud": 2}
+            by_shot = {s["shot"]: max((fx["loudness"] for fx in s["effects"]), key=rank.get, default="medium")
+                       for s in plan["shots"]}
+            sfx = mixing.balance_shots(sfx, [{"start": s["start"], "end": s["end"],
+                                              "loudness": by_shot.get(s["index"], "medium")} for s in shots])
         spots = []
         if C.PLAN_DETAIL == "close":
             for i, m in enumerate(plan["moments"]):
@@ -340,7 +347,12 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                     continue
                 clip = media.cut_clip(video, spot, work / f"spot{i:03d}.mp4")
                 say(f"    moment at {m['time']:.1f}s: {m['description']}")
-                audio, sr = backend.effects(clip, spot["prompt"], spot)
+                usual = C.FOLEY_CANDIDATES
+                C.override({"foley_candidates": max(int(usual), int(C.SPOT_CANDIDATES))})
+                try:
+                    audio, sr = backend.effects(clip, spot["prompt"], spot)
+                finally:
+                    C.override({"foley_candidates": usual})
                 spot["audio"] = media.to_stereo_48k(audio, sr)
                 spots.append(spot)
             sfx = mixing.add_spots(sfx, spots)
