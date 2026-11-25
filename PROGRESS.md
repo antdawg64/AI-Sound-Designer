@@ -1,6 +1,37 @@
 # Progress
 
-_Last updated: 2026-11-24_
+_Last updated: 2026-11-25_
+
+## Sound editor (built 2026-11-25, not yet live)
+
+After the sound is made, the results page has a **Fine-tune the sound** button that
+opens a timeline editor (`/edit/<job id>`, desktop first).
+
+- Every effect is its own clip: drag to move, click for volume / mute / remove / listen,
+  arrow keys to nudge, undo and redo, "Start over". One volume slider and mute for all
+  effects and one for the music. Playback is instant in the browser (no server, no cost).
+- **Make my video** remixes on the server (about 15 s, no GPU) and offers the edited
+  video, effects and music as downloads. The original files are kept.
+- How it works: `mixing.effects_layers` builds the effects track as one layer per
+  effect; `soundlib/editor.py` saves them in `out/editor/` with `out/editor.json`,
+  cleans edits, renders, and writes tuning records. `soundlib/editor_api.py` is the
+  API; `web/editor.html` is the page. Jobs made before this have no editor files.
+- **Tuning data**: each editing session is saved as one small JSON file in the Modal
+  volume `ai-sound-designer-tuning-data` (`/edits/<job>/<session>.json`): every clip
+  with what was done to it, the volume changes, each action in order, and the settings
+  the job was made with. No video, no audio, nothing about the person. It is never
+  deleted by the daily clean-up.
+- **`python analyze_edits.py`** downloads the records, writes `tuning_data/clips.csv`,
+  `jobs.csv` and `summary.md`, and suggests new defaults (music level, key-moment
+  level, per-shot effect levels) once 10 edited videos agree. `--apply` writes them to
+  `settings.json`. Test-tone jobs are left out unless `--include-tests`.
+- Try it free on a laptop: `python make_sound.py v.mp4 --dry-run --out outputs/demo`,
+  then `python scripts/editor_dev_server.py outputs/demo v.mp4` and open
+  http://localhost:8766/edit/demo. Checks: `python -m pytest tests/ -q`.
+- Tested with test tones only (browser run: drag, delete, mute, volume, undo, save,
+  render). Not yet deployed or run with real AI sound.
+- Later steps Anthony agreed to: "regenerate this one sound" and "add a sound by
+  typing a description".
 
 ## Where things stand
 

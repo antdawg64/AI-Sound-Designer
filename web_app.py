@@ -33,6 +33,9 @@ app = modal.App(APP_NAME)
 ROOT = Path(__file__).resolve().parent
 
 jobs_volume = modal.Volume.from_name("ai-sound-designer-jobs", create_if_missing=True)
+# What people change in the editor, kept for good (jobs are deleted after a few days) so
+# analyze_edits.py can learn better defaults from it. One small file per editing session.
+TUNING_VOLUME = "ai-sound-designer-tuning-data"
 job_status = modal.Dict.from_name("ai-sound-designer-jobs", create_if_missing=True)
 JOBS = Path("/jobs")
 GEO_DB = "/geo/country.mmdb"
@@ -61,7 +64,7 @@ image = (
     .env({"SOUND_SETTINGS": "/root/settings.json"})
     .add_local_dir(ROOT / "soundlib", "/root/soundlib", ignore=["**/__pycache__"])
     .add_local_file(ROOT / "make_sound.py", "/root/make_sound.py")
-    .add_local_file(ROOT / "web" / "index.html", "/root/web/index.html")
+    .add_local_dir(ROOT / "web", "/root/web")
     .add_local_file(C.SETTINGS_FILE, "/root/settings.json")
 )
 
@@ -272,5 +275,26 @@ def web():
         filename = f"{job.get('name', 'video')}-{nice}"
         return FileResponse(path, media_type=kind, filename=filename if download else None,
                             content_disposition_type="attachment" if download else "inline")
+
+    # The editor (fine-tune the sound after it is made): pages and API in soundlib/editor_api.py
+    from soundlib import editor_api
+
+    tuning_volume = modal.Volume.from_name(TUNING_VOLUME, create_if_missing=True)
+
+    def refresh() -> None:
+        try:
+            jobs_volume.reload()
+        except Exception:
+            pass   # a download is open in this machine; what is on disk is used
+
+    def keep_tuning_record(path: str, record: dict) -> None:
+        import io
+
+        with tuning_volume.batch_upload(force=True) as batch:
+            batch.put_file(io.BytesIO(json.dumps(record).encode()), path)
+
+    editor_api.attach(api, jobs=JOBS, get_job=job_status.get, refresh=refresh,
+                      commit=jobs_volume.commit, keep_tuning_record=keep_tuning_record,
+                      downloads=DOWNLOADS, web_folder=Path("/root/web"))
 
     return api

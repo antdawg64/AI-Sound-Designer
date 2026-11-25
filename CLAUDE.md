@@ -74,3 +74,7 @@ Only start a phase when Anthony asks for it.
 - Tune: `python tune.py` runs the variants in `variants.json` and builds the rating page in
   `tuning/`; `--serve` opens it with saving to `ratings.csv`; `--apply` makes the winners
   the new defaults. `python make_sound.py video.mp4 --versions` makes three takes.
+- Editor: `web/editor.html` + `soundlib/editor.py` + `soundlib/editor_api.py` (timeline
+  to fine-tune a finished job). What people change is kept in the Modal volume
+  `ai-sound-designer-tuning-data`; `python analyze_edits.py` turns it into suggested
+  defaults (`--apply` writes them to `settings.json`).

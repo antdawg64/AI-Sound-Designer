@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fine-tune the sound · AI Sound Designer</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --ink: #1b1b1f; --muted: #66656d; --line: #e2e0da;
+    --accent: #3b5bdb; --accent-ink: #ffffff; --soft: #eef1fd; --bad: #c92a2a; --bad-soft: #fff0f0;
+    --good: #2b8a3e; --lane: #efeee9; --lane-alt: #e9e7e1;
+    --moment: #e8590c; --moment-soft: #ffe8d6; --bg-clip: #0c8599; --bg-clip-soft: #d3f0f5;
+    --music: #7048e8; --music-soft: #e8e1fd; --voice: #5c5f66; --voice-soft: #e3e4e6;
+    --playhead: #e03131;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121215; --card: #1c1c21; --ink: #ececf1; --muted: #a09fa8; --line: #2e2e35;
+      --accent: #748ffc; --accent-ink: #0d0d10; --soft: #232842; --bad: #ff8787; --bad-soft: #3a1d1f;
+      --good: #69db7c; --lane: #17171b; --lane-alt: #1a1a1f;
+      --moment: #ff922b; --moment-soft: #3d2a17; --bg-clip: #3bc9db; --bg-clip-soft: #12343a;
+      --music: #9775fa; --music-soft: #2a2145; --voice: #adb5bd; --voice-soft: #2b2d31;
+      --playhead: #ff6b6b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); display: flex; flex-direction: column;
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 640px; }
+  button { font: 600 14px/1 inherit; font-family: inherit; border: 1px solid var(--line); border-radius: 9px;
+           background: var(--card); color: var(--ink); padding: 9px 13px; cursor: pointer;
+           display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  button:hover:not([disabled]) { border-color: var(--accent); }
+  button[disabled] { opacity: .4; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.danger { color: var(--bad); }
+  button.on { background: var(--soft); border-color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  a { color: var(--accent); }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px;
+        border-radius: 5px; padding: 1px 5px; background: var(--card); }
+
+  /* Top bar */
+  .top { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line);
+         background: var(--card); flex: none; }
+  .top h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; white-space: nowrap; }
+  .top .name { color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .top .grow { flex: 1; min-width: 0; }
+  .top .back { text-decoration: none; font-size: 14px; white-space: nowrap; }
+  #save-status { font-size: 13px; color: var(--muted); white-space: nowrap; }
+
+  /* Video and side panel */
+  .stage { display: flex; gap: 14px; padding: 14px 16px 10px; flex: 1 1 0; min-height: 200px; }
+  .viewer { flex: 1; min-width: 0; background: #000; border-radius: 12px; display: flex; align-items: center;
+            justify-content: center; overflow: hidden; }
+  .viewer video { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; }
+  .panel { width: 320px; flex: none; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+           padding: 16px; overflow: auto; }
+  .panel h2 { font-size: 16px; margin: 0 0 4px; }
+  .panel .tag { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 99px; padding: 2px 9px; margin-bottom: 8px; }
+  .tag.moment { background: var(--moment-soft); color: var(--moment); }
+  .tag.background { background: var(--bg-clip-soft); color: var(--bg-clip); }
+  .tag.music { background: var(--music-soft); color: var(--music); }
+  .panel p { margin: 6px 0; }
+  .panel ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+  .panel li { margin: 5px 0; }
+  .field { margin-top: 14px; }
+  .field label { display: flex; justify-content: space-between; font-weight: 600; font-size: 14px; }
+  .field .vol { margin-top: 6px; font-size: 13px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 6px 0 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+  /* Play controls */
+  .transport { display: flex; align-items: center; gap: 12px; padding: 4px 16px 8px; flex: none; }
+  #play { width: 44px; height: 38px; justify-content: center; padding: 0; font-size: 16px; }
+  #time { font: 600 15px ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; min-width: 118px; }
+  .transport .hint { font-size: 13px; color: var(--muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .zoom { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .zoom input { width: 110px; margin: 0; }
+
+  /* Timeline */
+  .timeline { display: flex; border-top: 1px solid var(--line); background: var(--card); flex: none; }
+  .heads { width: 190px; flex: none; border-right: 1px solid var(--line); }
+  .head { padding: 6px 10px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; justify-content: center; gap: 2px; overflow: hidden; }
+  .head.ruler-head { border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .head .title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; }
+  .head .title .dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .head .title button { margin-left: auto; padding: 4px 7px; font-size: 12px; border-radius: 7px; }
+  .vol { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .vol input { margin: 0; flex: 1; min-width: 0; }
+  .vol span { width: 52px; text-align: right; }
+  .head small { font-size: 12px; color: var(--muted); }
+  .scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; position: relative; }
+  .lanes { position: relative; min-width: 100%; }
+  .ruler { position: relative; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; touch-action: none; }
+  .tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); font-size: 11px; color: var(--muted); padding: 5px 0 0 4px; font-variant-numeric: tabular-nums; pointer-events: none; }
+  .lane { position: relative; border-bottom: 1px solid var(--line); background: var(--lane); touch-action: none; }
+  .lane:nth-of-type(odd) { background: var(--lane-alt); }
+  .cut { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--line); pointer-events: none; z-index: 1; }
+  .clip { position: absolute; border-radius: 6px; border: 1.5px solid var(--c); background: var(--cs); overflow: hidden;
+          cursor: grab; user-select: none; touch-action: none; z-index: 2; padding: 0; display: block; text-align: left; }
+  .clip.moment { --c: var(--moment); --cs: var(--moment-soft); }
+  .clip.background { --c: var(--bg-clip); --cs: var(--bg-clip-soft); }
+  .clip.music { --c: var(--music); --cs: var(--music-soft); cursor: pointer; }
+  .clip.voice { --c: var(--voice); --cs: var(--voice-soft); cursor: default; }
+  .clip canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .clip .label { position: absolute; left: 0; top: 0; max-width: 100%; font-size: 11px; font-weight: 600; line-height: 1.2; color: var(--ink);
+                 background: color-mix(in srgb, var(--cs) 82%, transparent); padding: 2px 6px; border-bottom-right-radius: 6px;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+  .clip.selected { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--c); z-index: 4; }
+  .clip.dragging { cursor: grabbing; opacity: .85; z-index: 5; }
+  .clip.off { opacity: .4; background: repeating-linear-gradient(135deg, var(--cs) 0 6px, transparent 6px 12px); }
+  .clip.moved::after { content: ""; position: absolute; right: 3px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
+  #playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--playhead); z-index: 6; pointer-events: none; }
+  #playhead::before { content: ""; position: absolute; top: 0; left: -5px; border: 6px solid transparent; border-top: 8px solid var(--playhead); }
+
+  .removed { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 16px; font-size: 13px; border-top: 1px solid var(--line);
+             background: var(--card); flex: none; min-height: 44px; }
+  .removed button { padding: 5px 9px; font-size: 12px; font-weight: 500; max-width: 240px; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
+  .removed .note { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+  /* Loading, errors, the finished dialog */
+  .cover { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 20; padding: 16px; }
+  .cover .box { max-width: 440px; text-align: center; }
+  .cover h2 { margin: 0 0 6px; }
+  .bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 16px 0 8px; }
+  .bar div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); padding: 22px; width: min(560px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0,0,0,.55); }
+  dialog h2 { margin: 0 0 4px; font-size: 20px; }
+  dialog video { width: 100%; border-radius: 10px; background: #000; margin: 12px 0; max-height: 46vh; }
+  dialog .downloads { display: grid; gap: 8px; }
+  dialog .downloads a { display: flex; justify-content: center; padding: 11px; border-radius: 10px; background: var(--soft); color: var(--ink); font-weight: 600; text-decoration: none; }
+  dialog .downloads a.main { background: var(--accent); color: var(--accent-ink); }
+  dialog .close { margin-top: 12px; width: 100%; justify-content: center; }
+  .small-screen { display: none; padding: 8px 16px; font-size: 13px; background: var(--soft); }
+  @media (max-width: 820px) {
+    .small-screen { display: block; }
+    .stage { flex-direction: column; }
+    .panel { width: auto; }
+    .heads { width: 132px; }
+    .top h1, .transport .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cover" id="cover">
+  <div class="box">
+    <h2 id="cover-title">Opening the editor</h2>
+    <p class="muted" id="cover-text">Loading your sounds…</p>
+    <div class="bar" id="cover-bar"><div></div></div>
+    <a id="cover-link" class="hidden" href="/">Back to the start</a>
+  </div>
+</div>
+
+<header class="top">
+  <a class="back" id="back" href="/">← Back</a>
+  <h1>Fine-tune the sound</h1>
+  <span class="name" id="name"></span>
+  <span class="grow"></span>
+  <span id="save-status" aria-live="polite"></span>
+  <button id="undo" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
+  <button id="redo" title="Redo (Ctrl+Shift+Z)" disabled>↷ Redo</button>
+  <button id="reset" title="Put everything back the way the AI made it" disabled>Start over</button>
+  <button id="make" class="primary">Make my video</button>
+</header>
+<div class="small-screen">The editor works best on a computer with a bigger screen.</div>
+
+<div class="stage">
+  <div class="viewer"><video id="video" muted playsinline preload="auto"></video></div>
+  <aside class="panel" id="panel" aria-live="polite"></aside>
+</div>
+
+<div class="transport">
+  <button id="play" title="Play or pause (Space)" aria-label="Play">▶</button>
+  <span id="time">0:00.0 / 0:00.0</span>
+  <span class="hint">Drag a sound to move it. Click one to change its volume, mute it or remove it.</span>
+  <label class="zoom">Zoom <input type="range" id="zoom" min="1" max="8" step="0.1" value="1" aria-label="Zoom the timeline"></label>
+</div>
+
+<div class="timeline">
+  <div class="heads" id="heads"></div>
+  <div class="scroll" id="scroll">
+    <div class="lanes" id="lanes">
+      <div class="ruler" id="ruler"></div>
+      <div id="playhead"></div>
+    </div>
+  </div>
+</div>
+
+<div class="removed" id="removed"></div>
+
+<dialog id="result">
+  <h2>Your version is ready</h2>
+  <p class="muted" id="result-sub">This is the video with your changes.</p>
+  <video id="result-video" controls playsinline preload="metadata"></video>
+  <div class="downloads">
+    <a class="main" id="dl-video" download>Download video with sound</a>
+    <a id="dl-sfx" download>Download sound effects only (WAV)</a>
+    <a id="dl-music" download>Download music only (WAV)</a>
+  </div>
+  <button class="close" id="result-close">Keep editing</button>
+</dialog>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const JOB = (location.pathname.match(/^\/edit\/([A-Za-z0-9]+)/) || [])[1] || "";
+const API = "/api/edit/" + JOB;
+const SESSION = Array.from(crypto.getRandomValues(new Uint8Array(9)), b => b.toString(36).padStart(2, "0")).join("");
+const OPENED = Date.now();
+const ROW = { moment: 30, background: 40, music: 54, voice: 36, ruler: 26, gap: 4 };
+const VOL = { min: -24, max: 12, step: 0.5 };
+
+let M = null;            // what the AI made: the list of clips (never changes)
+let S = null;            // the edit: where each clip is now, volumes, mutes
+let byId = {};           // clip id -> its entry in M.clips
+let buffers = {};        // clip id / "music" / "voice" -> decoded sound
+let peaks = {};          // the same keys -> loudness outline for drawing
+let selected = null;     // a clip id, "music", or null
+let history = [], historyAt = 0;
+let events = [], renders = 0;
+let pps = 40, zoom = 1;  // pixels per second
+let rows = {};           // clip id -> row inside its lane
+let laneOf = {};         // "moment" | "background" | "music" | "voice" -> its element
+
+// ---------------------------------------------------------------- helpers
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const gainOf = db => Math.pow(10, db / 20);
+function clock(t) {
+  t = Math.max(0, t);
+  const m = Math.floor(t / 60), s = t - m * 60;
+  return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1);
+}
+function dbText(db) { return db === 0 ? "Normal" : (db > 0 ? "+" : "−") + Math.abs(db).toFixed(Math.abs(db) % 1 ? 1 : 0) + " dB"; }
+function shortLabel(text, n = 60) { return text.length > n ? text.slice(0, n - 1) + "…" : text; }
+function log(type, extra) { if (events.length < 3000) events.push(Object.assign({ t: Date.now() - OPENED, type }, extra || {})); }
+
+// ---------------------------------------------------------------- sound engine
+const AC = window.AudioContext || window.webkitAudioContext;
+const ctx = new AC({ latencyHint: "interactive" });
+const master = ctx.createGain(), limiter = ctx.createDynamicsCompressor();
+limiter.threshold.value = -2; limiter.knee.value = 0; limiter.ratio.value = 20;
+limiter.attack.value = 0.003; limiter.release.value = 0.12;
+const fxBus = ctx.createGain(), musicBus = ctx.createGain();
+fxBus.connect(master); musicBus.connect(master); master.connect(limiter); limiter.connect(ctx.destination);
+const clipGain = {};      // clip id -> its volume node
+let playing = false, startedAt = 0, startedFrom = 0, position = 0;
+let sources = {};         // key -> the sound that is playing or scheduled
+
+function now() { return playing ? Math.min(M.duration, startedFrom + (ctx.currentTime - startedAt)) : position; }
+
+function applyGains() {
+  const t = ctx.currentTime;
+  fxBus.gain.setTargetAtTime(S.effects_muted ? 0 : gainOf(S.effects_db), t, 0.015);
+  musicBus.gain.setTargetAtTime(S.music_muted ? 0 : gainOf(S.music_db), t, 0.015);
+  for (const c of M.clips) {
+    const e = S.clips[c.id];
+    clipGain[c.id].gain.setTargetAtTime(e.muted || e.deleted ? 0 : gainOf(e.gain_db), t, 0.015);
+  }
+}
+function stopSource(key) {
+  const s = sources[key];
+  if (s) { try { s.stop(); } catch (err) {} s.disconnect(); delete sources[key]; }
+}
+function schedule(key, start, out) {
+  stopSource(key);
+  const buffer = buffers[key];
+  if (!playing || !buffer) return;
+  const pos = now(), offset = pos - start;
+  if (offset >= buffer.duration) return;
+  const src = ctx.createBufferSource();
+  src.buffer = buffer; src.connect(out);
+  if (offset >= 0) src.start(0, offset); else src.start(ctx.currentTime - offset);
+  sources[key] = src;
+}
+function scheduleClip(id) {
+  if (S.clips[id].deleted) return stopSource(id);
+  schedule(id, S.clips[id].start, clipGain[id]);
+}
+function scheduleAll() {
+  for (const c of M.clips) scheduleClip(c.id);
+  if (M.has_music) schedule("music", 0, musicBus);
+  if (M.has_voice) schedule("voice", 0, master);
+}
+async function play(from) {
+  if (ctx.state !== "running") await ctx.resume();
+  stopAll();
+  position = from == null ? (position >= M.duration - 0.05 ? 0 : position) : from;
+  startedFrom = position; startedAt = ctx.currentTime + 0.03; playing = true;
+  scheduleAll();
+  const v = $("video");
+  v.currentTime = position;
+  v.play().catch(() => {});
+  $("play").textContent = "❚❚"; $("play").setAttribute("aria-label", "Pause");
+}
+function stopAll() {
+  position = now(); playing = false;
+  Object.keys(sources).forEach(stopSource);
+  $("video").pause();
+  $("play").textContent = "▶"; $("play").setAttribute("aria-label", "Play");
+}
+function seek(t) {
+  t = clamp(t, 0, M.duration);
+  if (playing) play(t); else { position = t; $("video").currentTime = t; }
+  drawPlayhead();
+}
+async function listen(id) {            // hear one sound on its own
+  if (ctx.state !== "running") await ctx.resume();
+  stopAll();
+  const src = ctx.createBufferSource();
+  src.buffer = buffers[id];
+  const g = ctx.createGain();
+  g.gain.value = gainOf(S.clips[id].gain_db + S.effects_db);
+  src.connect(g); g.connect(master); src.start();
+  sources["listen"] = src;
+  seek(Math.max(0, S.clips[id].start));
+  log("listen", { clip: id });
+}
+
+function frame() {
+  if (M && S) {
+    const t = now();
+    if (playing) {
+      const v = $("video"), want = t - (ctx.outputLatency || 0);
+      if (!v.seeking && Math.abs(v.currentTime - want) > 0.12) v.currentTime = Math.max(0, want);
+      if (t >= M.duration) { stopAll(); position = M.duration; }
+      const sc = $("scroll"), x = t * pps;
+      if (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - 30) sc.scrollLeft = Math.max(0, x - 60);
+    }
+    drawPlayhead();
+  }
+  requestAnimationFrame(frame);
+}
+function drawPlayhead() {
+  const t = now();
+  $("playhead").style.left = (t * pps) + "px";
+  $("time").textContent = clock(t) + " / " + clock(M.duration);
+}
+
+// ---------------------------------------------------------------- the edit, undo, saving
+function freshState(saved) {
+  const s = { effects_db: 0, music_db: 0, effects_muted: false, music_muted: false, clips: {} };
+  for (const c of M.clips) s.clips[c.id] = { start: c.start, gain_db: 0, muted: false, deleted: false };
+  if (saved) {
+    for (const k of ["effects_db", "music_db", "effects_muted", "music_muted"]) if (k in saved) s[k] = saved[k];
+    for (const [id, e] of Object.entries(saved.clips || {})) if (s.clips[id]) Object.assign(s.clips[id], e);
+  }
+  return s;
+}
+function isChanged() { return JSON.stringify(S) !== JSON.stringify(freshState()); }
+function commit(type, extra) {       // call after every finished change
+  history = history.slice(0, historyAt + 1);
+  history.push(JSON.stringify(S)); historyAt = history.length - 1;
+  if (history.length > 200) { history.shift(); historyAt--; }
+  log(type, extra);
+  afterChange();
+}
+function travel(step) {
+  const to = historyAt + step;
+  if (to < 0 || to >= history.length) return;
+  historyAt = to; S = JSON.parse(history[to]);
+  log(step < 0 ? "undo" : "redo");
+  if (selected && selected !== "music" && S.clips[selected].deleted) selected = null;
+  afterChange(true);
+}
+function afterChange(rescheduleAll) {
+  applyGains();
+  if (rescheduleAll && playing) scheduleAll();
+  drawClips(); drawHeads(); drawPanel(); drawRemoved();
+  $("undo").disabled = historyAt <= 0;
+  $("redo").disabled = historyAt >= history.length - 1;
+  $("reset").disabled = !isChanged();
+  queueSave();
+}
+let saveTimer = null, saving = false, dirty = false;
+function payload() { return JSON.stringify({ state: S, session: SESSION, events, renders }); }
+function queueSave() {
+  dirty = true;
+  $("save-status").textContent = "Saving…";
+  clearTimeout(saveTimer); saveTimer = setTimeout(save, 1200);
+}
+async function save() {
+  if (saving) return queueSave();
+  saving = true; dirty = false;
+  try {
+    const r = await fetch(API + "/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: payload() });
+    if (!r.ok) throw new Error(r.status);
+    if (!dirty) $("save-status").textContent = "All changes saved";
+  } catch (err) {
+    $("save-status").textContent = "Couldn't save, trying again…";
+    dirty = true; clearTimeout(saveTimer); saveTimer = setTimeout(save, 5000);
+  }
+  saving = false;
+}
+window.addEventListener("pagehide", () => {
+  if (dirty && navigator.sendBeacon) navigator.sendBeacon(API + "/save", new Blob([payload()], { type: "application/json" }));
+});
+
+// ---------------------------------------------------------------- drawing the timeline
+function computePeaks(buffer) {
+  const per = 200, n = Math.max(1, Math.ceil(buffer.duration * per)), out = new Float32Array(n);
+  const a = buffer.getChannelData(0), b = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : a;
+  const hop = buffer.sampleRate / per;
+  let top = 1e-6;
+  for (let i = 0; i < n; i++) {
+    let m = 0;
+    const end = Math.min(a.length, Math.floor((i + 1) * hop));
+    for (let j = Math.floor(i * hop); j < end; j += 4) { const v = Math.max(Math.abs(a[j]), Math.abs(b[j])); if (v > m) m = v; }
+    out[i] = m; if (m > top) top = m;
+  }
+  for (let i = 0; i < n; i++) out[i] /= top;
+  return out;
+}
+function drawWave(canvas, key, color, scale) {
+  const p = peaks[key]; if (!p) return;
+  const dpr = window.devicePixelRatio || 1, w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
+  const g = canvas.getContext("2d");
+  g.clearRect(0, 0, w, h); g.fillStyle = color; g.globalAlpha = 0.55;
+  const mid = h / 2;
+  for (let x = 0; x < w; x++) {
+    const a = Math.floor(x / w * p.length), b = Math.max(a + 1, Math.floor((x + 1) / w * p.length));
+    let m = 0; for (let i = a; i < b && i < p.length; i++) if (p[i] > m) m = p[i];
+    const y = Math.max(dpr * 0.5, Math.min(1, m * scale) * (mid - 2 * dpr));
+    g.fillRect(x, mid - y, 1, 2 * y);
+  }
+}
+function cssColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function packRows() {
+  const ends = [];
+  M.clips.filter(c => c.kind === "moment").sort((a, b) => a.start - b.start).forEach(c => {
+    let r = ends.findIndex(e => e <= c.start + 0.01);
+    if (r < 0) { r = ends.length; ends.push(0); }
+    ends[r] = c.start + c.duration; rows[c.id] = r;
+  });
+  rows.momentRows = Math.min(3, Math.max(1, ends.length));
+  M.clips.filter(c => c.kind === "moment").forEach(c => rows[c.id] %= rows.momentRows);
+  M.clips.filter(c => c.kind === "background").forEach((c, i) => rows[c.id] = i % 2);
+}
+function laneHeight(kind) {
+  const n = kind === "moment" ? rows.momentRows : kind === "background" ? 2 : 1;
+  return n * (ROW[kind] + ROW.gap) + ROW.gap;
+}
+function has(kind) {
+  return kind === "music" ? M.has_music : kind === "voice" ? M.has_voice : M.clips.some(c => c.kind === kind);
+}
+const LANES = ["moment", "background", "music", "voice"];
+
+function buildTimeline() {
+  packRows();
+  const lanes = $("lanes");
+  lanes.querySelectorAll(".lane").forEach(n => n.remove());
+  for (const kind of LANES) {
+    if (!has(kind)) continue;
+    const lane = el("div", "lane"); lane.dataset.kind = kind;
+    lane.style.height = laneHeight(kind) + "px";
+    lanes.insertBefore(lane, $("playhead"));
+    laneOf[kind] = lane;
+    lane.addEventListener("pointerdown", e => { if (e.target === lane) { select(null); scrub(e); } });
+  }
+  $("ruler").style.height = ROW.ruler + "px";
+  for (const c of M.clips) {
+    const b = el("button", "clip " + c.kind); b.dataset.id = c.id; b.title = c.label;
+    b.appendChild(el("canvas")); b.appendChild(el("span", "label", c.label));
+    b.style.height = ROW[c.kind] + "px";
+    b.style.top = (ROW.gap + rows[c.id] * (ROW[c.kind] + ROW.gap)) + "px";
+    b.addEventListener("pointerdown", e => startDrag(e, c.id));
+    laneOf[c.kind].appendChild(b);
+  }
+  for (const key of ["music", "voice"]) {
+    if (!has(key)) continue;
+    const b = el("button", "clip " + key); b.dataset.id = key;
+    b.appendChild(el("canvas"));
+    b.appendChild(el("span", "label", key === "music" ? "Music: " + (M.music.label || "") : "Voice from your video"));
+    b.style.height = ROW[key] + "px"; b.style.top = ROW.gap + "px";
+    if (key === "music") b.addEventListener("click", () => select("music")); else b.tabIndex = -1;
+    laneOf[key].appendChild(b);
+  }
+  layout();
+}
+function layout() {
+  const sc = $("scroll");
+  pps = Math.max(8, (sc.clientWidth - 2) / M.duration) * zoom;
+  $("lanes").style.width = Math.ceil(M.duration * pps) + "px";
+  // ruler
+  const ruler = $("ruler"); ruler.textContent = "";
+  const step = [0.5, 1, 2, 5, 10, 15, 30, 60].find(s => s * pps >= 64) || 60;
+  for (let t = 0; t < M.duration; t += step) {
+    const k = el("div", "tick", clock(t).replace(/\.0$/, "")); k.style.left = (t * pps) + "px"; ruler.appendChild(k);
+  }
+  // cut lines
+  $("lanes").querySelectorAll(".cut").forEach(n => n.remove());
+  for (const s of M.shots.slice(1)) {
+    const c = el("div", "cut"); c.style.left = (s.start * pps) + "px"; c.style.top = ROW.ruler + "px";
+    $("lanes").appendChild(c);
+  }
+  drawClips();
+  drawPlayhead();
+}
+function drawClips() {
+  for (const node of $("lanes").querySelectorAll(".clip")) {
+    const id = node.dataset.id;
+    if (id === "music" || id === "voice") {
+      node.style.left = "0px"; node.style.width = (M.duration * pps) + "px";
+      node.classList.toggle("off", id === "music" && S.music_muted);
+      node.classList.toggle("selected", selected === id);
+      drawWave(node.firstChild, id, cssColor("--" + id), id === "music" ? clamp(gainOf(S.music_db), 0.15, 1.6) : 1);
+      continue;
+    }
+    const c = byId[id], e = S.clips[id];
+    node.classList.toggle("hidden", e.deleted);
+    if (e.deleted) continue;
+    node.style.left = (e.start * pps) + "px";
+    node.style.width = Math.max(6, c.duration * pps) + "px";
+    node.classList.toggle("off", e.muted || S.effects_muted);
+    node.classList.toggle("selected", selected === id);
+    node.classList.toggle("moved", Math.abs(e.start - c.start) > 0.005);
+    drawWave(node.firstChild, id, cssColor(c.kind === "moment" ? "--moment" : "--bg-clip"), clamp(gainOf(e.gain_db + S.effects_db), 0.15, 1.6));
+  }
+}
+
+function slider(value, onInput, onDone, label) {
+  const wrap = el("div", "vol");
+  const r = el("input"); r.type = "range"; r.min = VOL.min; r.max = VOL.max; r.step = VOL.step; r.value = value;
+  r.setAttribute("aria-label", label);
+  const out = el("span", null, dbText(+value));
+  r.addEventListener("input", () => { out.textContent = dbText(+r.value); onInput(+r.value); });
+  r.addEventListener("change", () => onDone(+r.value));
+  r.addEventListener("dblclick", () => { r.value = 0; out.textContent = dbText(0); onInput(0); onDone(0); });
+  wrap.appendChild(r); wrap.appendChild(out);
+  return wrap;
+}
+function drawHeads() {
+  const heads = $("heads"); heads.textContent = "";
+  const rh = el("div", "head ruler-head", "Tracks"); rh.style.height = (ROW.ruler + 1) + "px"; heads.appendChild(rh);
+  const fxKinds = ["moment", "background"].filter(has);
+  if (fxKinds.length) {
+    const h = el("div", "head");
+    h.style.height = fxKinds.reduce((sum, k) => sum + laneHeight(k) + 1, 0) + "px";
+    const t = el("div", "title"); const dot = el("span", "dot"); dot.style.background = "var(--bg-clip)";
+    t.appendChild(dot); t.appendChild(el("span", null, "Sound effects"));
+    const m = el("button", S.effects_muted ? "on" : "", S.effects_muted ? "Muted" : "Mute");
+    m.addEventListener("click", () => { S.effects_muted = !S.effects_muted; commit("effects_mute", { to: S.effects_muted }); });
+    t.appendChild(m); h.appendChild(t);
+    h.appendChild(slider(S.effects_db, v => { S.effects_db = v; applyGains(); },
+      v => { S.effects_db = v; commit("effects_volume", { to: v }); }, "Volume of all sound effects"));
+    if (fxKinds.length === 2) h.appendChild(el("small", null, "Top: key moments. Below: background sounds."));
+    heads.appendChild(h);
+  }
+  if (M.has_music) {
+    const h = el("div", "head"); h.style.height = (laneHeight("music") + 1) + "px";
+    const t = el("div", "title"); const dot = el("span", "dot"); dot.style.background = "var(--music)";
+    t.appendChild(dot); t.appendChild(el("span", null, "Music"));
+    const m = el("button", S.music_muted ? "on" : "", S.music_muted ? "Muted" : "Mute");
+    m.addEventListener("click", () => { S.music_muted = !S.music_muted; commit("music_mute", { to: S.music_muted }); });
+    t.appendChild(m); h.appendChild(t);
+    h.appendChild(slider(S.music_db, v => { S.music_db = v; applyGains(); },
+      v => { S.music_db = v; commit("music_volume", { to: v }); }, "Volume of the music"));
+    heads.appendChild(h);
+  }
+  if (M.has_voice) {
+    const h = el("div", "head"); h.style.height = (laneHeight("voice") + 1) + "px";
+    const t = el("div", "title"); const dot = el("span", "dot"); dot.style.background = "var(--voice)";
+    t.appendChild(dot); t.appendChild(el("span", null, "Voice")); h.appendChild(t);
+    heads.appendChild(h);
+  }
+}
+
+function drawPanel() {
+  const p = $("panel"); p.textContent = "";
+  if (selected === "music") {
+    p.appendChild(el("span", "tag music", "Music"));
+    p.appendChild(el("h2", null, shortLabel(M.music.label || "Background music", 120)));
+    p.appendChild(el("p", "muted", "Use the Music slider on the left of the timeline to make it louder or quieter, or press Mute to hear the video without it."));
+    return;
+  }
+  if (!selected) {
+    p.appendChild(el("h2", null, "Make it yours"));
+    p.appendChild(el("p", "muted", "The AI placed every sound. Now you can adjust anything that isn't quite right."));
+    const ul = el("ul");
+    for (const html of [
+      "<b>Drag</b> a sound left or right to change when it happens.",
+      "<b>Click</b> a sound to change its volume, mute it or remove it.",
+      "Use the sliders on the left to balance <b>effects</b> against <b>music</b>.",
+      "Press <kbd>Space</kbd> to play or pause. <kbd>←</kbd> <kbd>→</kbd> nudge the selected sound.",
+      "When you're happy, press <b>Make my video</b>."]) { const li = el("li"); li.innerHTML = html; ul.appendChild(li); }
+    p.appendChild(ul);
+    p.appendChild(el("p", "muted", "")).style.fontSize = "12px";
+    p.lastChild.textContent = "Your changes are saved as you go. We also keep them, without your video or anything about you, to make the automatic sound better.";
+    return;
+  }
+  const c = byId[selected], e = S.clips[selected];
+  p.appendChild(el("span", "tag " + c.kind, c.kind === "moment" ? "Key moment" : "Background sound"));
+  p.appendChild(el("h2", null, shortLabel(c.label, 140)));
+  const moved = e.start - c.start;
+  p.appendChild(el("p", "muted", "Starts at " + clock(Math.max(0, e.start)) + (Math.abs(moved) > 0.005 ? " (moved " + (moved > 0 ? "+" : "−") + Math.abs(moved).toFixed(2) + " s)" : "")));
+  const f = el("div", "field");
+  const lab = el("label", null, "Volume"); f.appendChild(lab);
+  f.appendChild(slider(e.gain_db, v => { e.gain_db = v; applyGains(); },
+    v => { e.gain_db = v; commit("clip_volume", { clip: selected, to: v }); }, "Volume of this sound"));
+  p.appendChild(f);
+  const row = el("div", "row");
+  const hear = el("button", null, "▶ Listen"); hear.title = "Hear this sound on its own";
+  hear.addEventListener("click", () => listen(selected));
+  const mute = el("button", e.muted ? "on" : "", e.muted ? "Unmute" : "Mute"); mute.title = "Mute or unmute (M)";
+  mute.addEventListener("click", () => toggleMute(selected));
+  const del = el("button", "danger", "Remove"); del.title = "Remove this sound (Delete)";
+  del.addEventListener("click", () => removeClip(selected));
+  row.appendChild(hear); row.appendChild(mute); row.appendChild(del);
+  if (Math.abs(moved) > 0.005 || e.gain_db || e.muted) {
+    const back = el("button", null, "Put back");
+    back.title = "Undo every change to this sound";
+    back.addEventListener("click", () => { S.clips[selected] = { start: c.start, gain_db: 0, muted: false, deleted: false }; if (playing) scheduleClip(selected); commit("clip_reset", { clip: selected }); });
+    row.appendChild(back);
+  }
+  p.appendChild(row);
+}
+function drawRemoved() {
+  const box = $("removed"); box.textContent = "";
+  const gone = M.clips.filter(c => S.clips[c.id].deleted);
+  if (gone.length) {
+    box.appendChild(el("span", "muted", "Removed:"));
+    for (const c of gone) {
+      const b = el("button", null, "↩ " + shortLabel(c.label, 34)); b.title = "Put back: " + c.label;
+      b.addEventListener("click", () => { S.clips[c.id].deleted = false; if (playing) scheduleClip(c.id); select(c.id, true); commit("restore", { clip: c.id }); });
+      box.appendChild(b);
+    }
+  }
+  const n = el("span", "note", gone.length ? "" : "Tip: nothing is lost. Removed sounds wait here, and Undo brings back any change.");
+  box.appendChild(n);
+}
+
+// ---------------------------------------------------------------- actions
+function select(id, quiet) {
+  selected = id;
+  if (!quiet) { drawClips(); drawPanel(); }
+}
+function toggleMute(id) {
+  const e = S.clips[id]; e.muted = !e.muted;
+  commit(e.muted ? "mute" : "unmute", { clip: id });
+}
+function removeClip(id) {
+  S.clips[id].deleted = true; stopSource(id); selected = null;
+  commit("delete", { clip: id, at: +S.clips[id].start.toFixed(3) });
+}
+function moveLimits(id) { return [0.1 - byId[id].duration, M.duration - 0.1]; }
+function nudge(id, by) {
+  const e = S.clips[id], from = e.start, [lo, hi] = moveLimits(id);
+  e.start = +clamp(e.start + by, lo, hi).toFixed(4);
+  if (e.start === from) return;
+  if (playing) scheduleClip(id);
+  commit("move", { clip: id, from: +from.toFixed(3), to: e.start, how: "keys" });
+}
+function startDrag(ev, id) {
+  if (ev.button) return;
+  ev.preventDefault();
+  const node = ev.currentTarget, e = S.clips[id], from = e.start, x0 = ev.clientX, [lo, hi] = moveLimits(id);
+  let moved = false, last = 0;
+  select(id);
+  node.setPointerCapture(ev.pointerId);
+  const label = node.querySelector(".label"), text = label.textContent;
+  const onMove = m => {
+    const dx = m.clientX - x0;
+    if (!moved && Math.abs(dx) < 3) return;
+    moved = true; node.classList.add("dragging");
+    e.start = +clamp(from + dx / pps, lo, hi).toFixed(4);
+    node.style.left = (e.start * pps) + "px";
+    label.textContent = clock(Math.max(0, e.start)) + "  " + text;
+    if (playing && performance.now() - last > 140) { last = performance.now(); scheduleClip(id); }
+  };
+  const onUp = () => {
+    node.removeEventListener("pointermove", onMove); node.removeEventListener("pointerup", onUp); node.removeEventListener("pointercancel", onUp);
+    node.classList.remove("dragging"); label.textContent = text;
+    if (moved && e.start !== from) {
+      if (playing) scheduleClip(id);
+      commit("move", { clip: id, from: +from.toFixed(3), to: e.start, how: "drag" });
+    } else node.focus();
+  };
+  node.addEventListener("pointermove", onMove); node.addEventListener("pointerup", onUp); node.addEventListener("pointercancel", onUp);
+}
+function scrub(ev) {
+  const lanes = $("lanes"), at = e => (e.clientX - lanes.getBoundingClientRect().left) / pps;
+  seek(at(ev));
+  const target = ev.currentTarget; target.setPointerCapture(ev.pointerId);
+  const onMove = m => seek(at(m));
+  const onUp = () => { target.removeEventListener("pointermove", onMove); target.removeEventListener("pointerup", onUp); target.removeEventListener("pointercancel", onUp); };
+  target.addEventListener("pointermove", onMove); target.addEventListener("pointerup", onUp); target.addEventListener("pointercancel", onUp);
+}
+
+$("ruler").addEventListener("pointerdown", scrub);
+$("play").addEventListener("click", () => { if (playing) stopAll(); else play(); });
+$("undo").addEventListener("click", () => travel(-1));
+$("redo").addEventListener("click", () => travel(1));
+$("reset").addEventListener("click", () => {
+  S = freshState(); selected = null;
+  if (playing) scheduleAll();
+  commit("reset_all");
+});
+$("zoom").addEventListener("input", e => {
+  const sc = $("scroll"), centre = (sc.scrollLeft + sc.clientWidth / 2) / pps;
+  zoom = +e.target.value; layout();
+  sc.scrollLeft = centre * pps - sc.clientWidth / 2;
+});
+window.addEventListener("resize", () => { if (M) layout(); });
+document.addEventListener("keydown", e => {
+  if (!M || $("result").open) return;
+  const tag = (e.target.tagName || "").toLowerCase(), typing = tag === "input" || tag === "textarea" || tag === "select";
+  const mod = e.ctrlKey || e.metaKey, clip = selected && selected !== "music" ? selected : null;
+  if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); travel(e.shiftKey ? 1 : -1); return; }
+  if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); travel(1); return; }
+  if (mod || e.altKey) return;
+  if (e.key === " " && tag !== "input") { e.preventDefault(); if (playing) stopAll(); else play(); return; }
+  if (typing) return;
+  if (e.key === "Home") { seek(0); return; }
+  if (e.key === "Escape") { select(null); return; }
+  if (!clip) return;
+  if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeClip(clip); }
+  else if (e.key.toLowerCase() === "m") toggleMute(clip);
+  else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); nudge(clip, (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 0.2 : 0.04)); }
+});
+
+// ---------------------------------------------------------------- make the edited video
+$("make").addEventListener("click", async () => {
+  const b = $("make");
+  stopAll();
+  b.disabled = true; b.textContent = "Mixing your version…";
+  clearTimeout(saveTimer); dirty = false;
+  renders++; log("render");
+  try {
+    const r = await fetch(API + "/render", { method: "POST", headers: { "Content-Type": "application/json" }, body: payload() });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.detail || "We couldn't make your version. Please try again.");
+    $("save-status").textContent = "All changes saved";
+    showResult(body.rendered);
+  } catch (err) {
+    renders--;
+    $("save-status").textContent = err.message || "Something went wrong. Please try again.";
+  }
+  b.disabled = false; b.textContent = "Make my video";
+});
+function showResult(stamp) {
+  const q = "?t=" + encodeURIComponent(stamp);
+  $("result-video").src = API + "/file/final.mp4" + q;
+  $("dl-video").href = API + "/file/final.mp4" + q + "&download=1";
+  $("dl-sfx").href = API + "/file/sfx.wav" + q + "&download=1";
+  $("dl-music").href = API + "/file/music.wav" + q + "&download=1";
+  $("dl-sfx").classList.toggle("hidden", !M.clips.length);
+  $("dl-music").classList.toggle("hidden", !M.has_music);
+  $("result").showModal();
+}
+$("result-close").addEventListener("click", () => { $("result-video").pause(); $("result").close(); });
+$("result").addEventListener("close", () => $("result-video").pause());
+
+// ---------------------------------------------------------------- start
+function fail(title, text) {
+  $("cover").classList.remove("hidden");
+  $("cover-title").textContent = title; $("cover-text").textContent = text;
+  $("cover-bar").classList.add("hidden"); $("cover-link").classList.remove("hidden");
+}
+async function start() {
+  if (!JOB) return fail("Nothing to edit", "This link doesn't point to a video.");
+  $("back").href = "/j/" + JOB;
+  let info;
+  try {
+    const r = await fetch(API, { cache: "no-store" });
+    if (!r.ok) { const b = await r.json().catch(() => ({})); return fail("Can't open the editor", b.detail || "That video wasn't found."); }
+    info = await r.json();
+  } catch (err) { return fail("Can't open the editor", "Please check your connection and reload this page."); }
+  M = info.manifest;
+  for (const c of M.clips) { byId[c.id] = c; clipGain[c.id] = ctx.createGain(); clipGain[c.id].connect(fxBus); }
+  S = freshState(info.state);
+  history = [JSON.stringify(S)]; historyAt = 0;
+  master.gain.value = gainOf(M.preview_gain_db || 0);
+  $("name").textContent = (info.job.name || "") + (info.job.test_tones ? " · TEST TONES ONLY" : "");
+  document.title = (info.job.name ? info.job.name + " · " : "") + "Fine-tune the sound";
+  $("video").src = "/api/job/" + JOB + "/final.mp4";
+
+  const wanted = M.clips.map(c => [c.id, c.file]);
+  if (M.has_music) wanted.push(["music", M.music.file]);
+  if (M.has_voice) wanted.push(["voice", M.voice.file]);
+  let done = 0;
+  try {
+    await Promise.all(wanted.map(async ([key, file]) => {
+      const r = await fetch(API + "/audio/" + file);
+      if (!r.ok) throw new Error(file);
+      buffers[key] = await ctx.decodeAudioData(await r.arrayBuffer());
+      peaks[key] = computePeaks(buffers[key]);
+      done++;
+      $("cover-bar").firstElementChild.style.width = Math.round(100 * done / wanted.length) + "%";
+      $("cover-text").textContent = "Loading your sounds… " + done + " of " + wanted.length;
+    }));
+  } catch (err) { return fail("Can't open the editor", "One of the sounds didn't load. Please reload this page."); }
+
+  buildTimeline(); drawHeads(); drawPanel(); drawRemoved(); applyGains();
+  $("reset").disabled = !isChanged();
+  $("save-status").textContent = isChanged() ? "Your earlier changes are loaded" : "";
+  log("open", { clips: M.clips.length, changed: isChanged() });
+  $("cover").classList.add("hidden");
+  requestAnimationFrame(frame);
+}
+start();
+</script>
+</body>
+</html>
