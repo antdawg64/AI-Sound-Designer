@@ -8,7 +8,7 @@
 
   "planning": {
     "_plan_detail": "standard = a few frames per shot. close = Claude studies many more frames per shot and also marks exact moments (a grab, a snap, an impact); each marked moment gets its own extra effect placed at that instant.",
-    "plan_detail": "standard",
+    "plan_detail": "close",
     "close_frames_per_shot": 6,
     "close_max_frames": 80,
     "close_frame_long_side": 512,

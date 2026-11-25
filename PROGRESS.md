@@ -168,7 +168,7 @@ Anthony's scores on the three takes: 2, 3 (sparse music), 1 (bigger music).
 | 2026-11-25 | Phase 2 tuning run: baseline, 6 variants, 3 takes | 657 | $0.42 est. |
 | 2026-11-25 | Phase 2 confirmation run with the new defaults | 63 | $0.03 est. |
 
-## Improvement round 2 (2026-11-25), waiting for Anthony's ratings
+## Improvement round 2 (2026-11-25), rated and applied
 
 Anthony approved a round on three ideas before Prompt 3. Built on the round 1 defaults:
 
@@ -192,3 +192,31 @@ page is the same claude.ai page (Sound Tuning Room); copy in
 `python tune.py --apply`, redeploy, and stop. Do not start Phase 3.
 
 | 2026-11-25 | Round 2 tuning run: baseline and 5 variants | 567 | $0.49 est. |
+
+## Tuning round, 2026-11-25
+
+From Anthony's ratings in `ratings.csv` (current settings scored 2.0 out of 5):
+
+- `all_together`: 2.0 (same)
+- `best_of_three`: 2.0 (same)
+- `close_planning`: 3.0 (better)
+- `music_ducks`: 1.0 (worse)
+- `room_reverb`: 1.0 (worse)
+
+New defaults written to `settings.json`:
+
+- `plan_detail`: `standard` to `close`
+
+Anthony's notes:
+
+- `all_together`: this one has the most potential, but the foley is way too loud. and echo is bad dont do echo
+
+Round 2 outcome: only closer planning with exact-moment effects beat the current
+settings (3 vs 2), so `plan_detail` is now `close`. Best of three tied (2). Room echo
+and music dipping both scored 1 and stay off; Anthony said plainly "don't do echo".
+On the all-together version he wrote that it "has the most potential, but the foley is
+way too loud". Effects level has not been changed yet because it was not a rated
+variant: the next round should test quieter effects (`sfx_lufs_no_voice`, `spot_gain_db`).
+The sound with the current defaults is
+`/mnt/project-files/prompt2_tuning/new_defaults/mitey_vacuum_tuned_round2.mp4`.
+Best score so far is 3 out of 5. Phase 3 has not been started.

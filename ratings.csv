@@ -1,0 +1,7 @@
+video,variant,setting,value,rating,note,rated_at
+mitey-vacuum-short-living-room-silent,current,,,2,,2026-11-25T02:49:36Z
+mitey-vacuum-short-living-room-silent,close_planning,plan_detail,"""close""",3,,2026-11-25T02:49:37Z
+mitey-vacuum-short-living-room-silent,best_of_three,foley_candidates,3,2,,2026-11-25T02:50:28Z
+mitey-vacuum-short-living-room-silent,room_reverb,sfx_reverb,0.25,1,,2026-11-25T02:50:37Z
+mitey-vacuum-short-living-room-silent,music_ducks,music_duck_under_sfx,true,1,,2026-11-25T02:51:09Z
+mitey-vacuum-short-living-room-silent,all_together,(several),"{""plan_detail"":""close"",""foley_candidates"":3,""sfx_reverb"":0.25,""music_duck_under_sfx"":true}",2,"this one has the most potential, but the foley is way too loud. and echo is bad dont do echo",2026-11-25T02:52:18Z
