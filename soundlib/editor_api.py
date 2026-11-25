@@ -14,6 +14,7 @@ It is kept apart from Modal so the same code also runs on a laptop for testing
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -45,6 +46,11 @@ def attach(api, *, jobs: Path, get_job: Callable[[str], dict | None], refresh: C
             raise HTTPException(404, "That video wasn't found, or it isn't finished yet.")
         out = jobs / job_id / "out"
         if fresh or not (out / editor.MANIFEST).exists():
+            refresh()
+        for _ in range(4):     # just finished: the files can lag, or a download blocks the refresh
+            if (out / editor.MANIFEST).exists():
+                break
+            time.sleep(0.7)
             refresh()
         manifest = editor.load_manifest(out)
         if manifest is None:
