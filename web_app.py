@@ -158,6 +158,18 @@ def cleanup() -> int:
     return removed
 
 
+# --- What people change in the editor ----------------------------------------------
+
+@app.function(image=image, volumes={"/tuning": modal.Volume.from_name(TUNING_VOLUME, create_if_missing=True)},
+              timeout=600)
+def export_edits() -> list[dict]:
+    """Every saved editing-session record. `python analyze_edits.py` calls this, and so
+    does the /insights page. Records hold no video, no audio and nothing about people."""
+    from soundlib import insights
+
+    return insights.read_records(Path("/tuning"))
+
+
 # --- The page and its API ----------------------------------------------------------
 
 @app.function(image=image, volumes={str(JOBS): jobs_volume}, timeout=900, scaledown_window=300,
@@ -305,5 +317,46 @@ def web():
     editor_api.attach(api, jobs=JOBS, get_job=job_status.get, refresh=refresh,
                       commit=jobs_volume.commit, keep_tuning_record=keep_tuning_record,
                       downloads=DOWNLOADS, web_folder=Path("/root/web"))
+
+    # Insights: what people change in the editor, for the owner only.
+    import hashlib
+
+    from fastapi.responses import Response
+
+    from soundlib import insights
+
+    admins = {str(h).lower() for h in C.WEB_ADMIN_EMAIL_SHA256}
+    open_site = not os.environ.get("SITE_PASSWORD")
+    accounts = bool(str(C.WEB_SUPABASE_URL or "").strip() and str(C.WEB_SUPABASE_ANON_KEY or "").strip())
+
+    def owner_only(request: Request) -> None:
+        """With accounts on, only the owner's addresses get in (see web_admin_email_sha256)."""
+        if open_site or not accounts:
+            return
+        email = (getattr(request.state, "person", None) or {}).get("email", "").strip().lower()
+        if not email or hashlib.sha256(email.encode()).hexdigest() not in admins:
+            raise HTTPException(404, "Not found.")
+
+    def studied() -> tuple[list[dict], dict]:
+        records = export_edits.remote()
+        return records, insights.study(records)
+
+    @api.get("/insights", response_class=HTMLResponse)
+    def insights_page(request: Request):
+        owner_only(request)
+        return HTMLResponse(insights.report_html(studied()[1]), headers={"Cache-Control": "no-store"})
+
+    @api.get("/api/insights/{name}")
+    def insights_file(request: Request, name: str):
+        owner_only(request)
+        records, result = studied()
+        day = _today()
+        if name == "download":
+            return Response(insights.bundle(records, result), media_type="application/zip", headers={
+                "Content-Disposition": f'attachment; filename="editor-edits-{day}.zip"'})
+        if name in ("clips.csv", "jobs.csv"):
+            return Response(insights.csv_text(result[name[:-5] + "_rows"]), media_type="text/csv", headers={
+                "Content-Disposition": f'attachment; filename="editor-{name[:-4]}-{day}.csv"'})
+        raise HTTPException(404, "Not found.")
 
     return api
