@@ -1,7 +1,4 @@
 video,variant,setting,value,rating,note,rated_at
-mitey-vacuum-short-living-room-silent,current,,,2,,2026-11-25T22:16:08Z
-mitey-vacuum-short-living-room-silent,layered,sfx_layering,"""layered""",3,,2026-11-25T22:16:26Z
-mitey-vacuum-short-living-room-silent,layered_soft,(several),"{""sfx_layering"":""layered"",""moment_layer_db"":{""whoosh"":-10,""detail"":-12},""ambience_level_db"":-22}",3,,2026-11-25T22:16:55Z
-mitey-vacuum-short-living-room-silent,layered_pro,(several),"{""sfx_layering"":""layered"",""mix_style"":""pro""}",4,,2026-11-25T22:17:31Z
-mitey-vacuum-short-living-room-silent,stable,sfx_engine,"""stable_audio""",2,,2026-11-25T22:19:20Z
-mitey-vacuum-short-living-room-silent,stable_layered,(several),"{""sfx_engine"":""stable_audio"",""sfx_layering"":""layered""}",3,,2026-11-25T22:19:21Z
+mitey-vacuum-short-living-room-silent,current,,,2,,2026-11-25T22:20:40.723Z
+mitey-vacuum-short-living-room-silent,lyria_2,(several),"{""music_provider"":""lyria"",""lyria_model"":""lyria-002""}",3,,2026-11-25T22:21:25.671Z
+mitey-vacuum-short-living-room-silent,lyria_3_pro,(several),"{""music_provider"":""lyria"",""lyria_model"":""lyria-3-pro-preview""}",4,,2026-11-25T22:21:58.383Z

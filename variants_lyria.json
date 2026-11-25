@@ -1,0 +1,20 @@
+{
+  "_about": "Round 14 (2026-11-25): Google Lyria as the music model, next to the current one (ACE-Step). Same plan, same effects and same mix on every tile; only who composes the music changes. Earlier rounds are in variants_round*.json.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "lyria_3_pro",
+      "label": "Google Lyria 3 Pro",
+      "settings": {"music_provider": "lyria", "lyria_model": "lyria-3-pro-preview"},
+      "why": "Google's newest music model. It is told when each part of the story starts and writes one piece to exactly the video's length. Still a preview release at Google."
+    },
+    {
+      "id": "lyria_2",
+      "label": "Google Lyria 2",
+      "settings": {"music_provider": "lyria", "lyria_model": "lyria-002"},
+      "why": "Google's fully released music model. It always writes about 30 seconds and treats the story timings only as a loose description."
+    }
+  ]
+}
