@@ -2,6 +2,21 @@
 
 _Last updated: 2026-11-25_
 
+## Round 15 (2026-11-25): better effects around the same model (waiting for Anthony's ratings)
+
+Anthony said yes to: one sound at a time, several takes with a judge, snap to the action,
+per-sound cleanup and placing, and descriptions in the model's own style. All new settings
+default to off: `sfx_sources` (mixed/separate), `take_judge` (match/strict) with
+`foley_candidates`/`spot_candidates`, `moment_snap`, `sfx_cleanup`, `sfx_pan`. The planner
+now writes one plain sound per effect with a `source` and `position` (this part is always on).
+Adapted from the idea list: sources are separated by time window, not by cropping the picture;
+the judge is a text-to-sound match with penalties for voice, music and late starts (no true
+picture-sync scorer); noise reduction only on key moments.
+Run: `SOUND_APP=ai-sound-designer-dev python tune.py <video> --variants variants_round15.json`.
+Tiles are on the Sound Tuning Room (run `20261125-r15`), files in /mnt/project-files/round15/.
+Cost $0.65. Best of 3 takes roughly triples the effects cost per video (about $0.08 to $0.22 here).
+Not live. Next: apply whatever Anthony scores highest.
+
 ## Layered effects, pro mix, Stable Audio, edit insights (2026-11-25, round 14 waiting for ratings)
 
 Branch `claude/project-thread-1d0ddk` (contains the editor branch up to 7eded98). All new
