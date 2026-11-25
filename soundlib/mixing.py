@@ -203,7 +203,7 @@ def shape_to_cues(music: np.ndarray, cues: dict) -> np.ndarray:
     sr, total = C.SAMPLE_RATE, len(music)
     secs = cues["sections"]
     curve = _smooth_steps([s["start"] for s in secs],
-                          [C.CUE_INTENSITY_DB[s["intensity"] - 1] for s in secs], total, 0.8)
+                          [C.CUE_INTENSITY_DB[s["intensity"] - 1] for s in secs], total, float(C.CUE_RAMP_SECONDS))
     t = np.arange(total) / sr
     for hit in cues["hits"]:
         dip, accent = C.CUE_HIT_DIP_DB[hit["strength"]], C.CUE_HIT_ACCENT_DB[hit["strength"]]

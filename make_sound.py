@@ -363,8 +363,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             parts = []
             for sec in cues["sections"]:
                 length = sec["end"] - sec["start"]
-                part_caption = planning.music_caption(
-                    music_plan, ", ".join(x for x in (music_flavour, sec["description"]) if x))
+                part_caption = planning.section_caption(music_plan, music_flavour, sec)
                 raw, sr = backend.compose(part_caption, bpm,
                                           max(C.MUSIC_MIN_SECONDS, float(np.ceil(length)) + 9.0),
                                           cues["key"])
@@ -372,10 +371,14 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             music = mixing.join_sections(parts, cues["sections"], duration, bpm)
             music = mixing.shape_music(music, C.SAMPLE_RATE, duration)
         elif cues and C.MUSIC_SCORING == "repaint":
-            parts = [{"start": sec["start"], "end": sec["end"],
-                      "caption": planning.music_caption(
-                          music_plan, ", ".join(x for x in (music_flavour, sec["description"]) if x))}
-                     for sec in cues["sections"]]
+            keep, last = float(C.REPAINT_KEEP_SECONDS), len(cues["sections"]) - 1
+            parts = []
+            for i, sec in enumerate(cues["sections"]):
+                a = sec["start"] + (keep if i > 0 else 0.0)
+                b = sec["end"] - (keep if i < last else 0.0)
+                if b - a >= 1.0:   # too short to rewrite once the joins are kept: leave as composed
+                    parts.append({"start": round(a, 3), "end": round(b, 3),
+                                  "caption": planning.section_caption(music_plan, music_flavour, sec)})
             raw, sr = backend.compose_scored(
                 caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1), cues["key"], parts)
             music = mixing.shape_music(raw, sr, duration)

@@ -363,3 +363,15 @@ def music_caption(music: dict, flavour: str = "") -> str:
     if flavour and "{flavour}" not in C.MUSIC_PROMPT_TEMPLATE:
         text = f"{text}, {flavour}"
     return ", ".join(part.strip() for part in text.split(",") if part.strip())
+
+
+SECTION_FEEL = ["very sparse and quiet, barely there", "restrained, light and steady",
+                "building, more movement", "driving and intense", "full climax, everything playing"]
+
+
+def section_caption(music: dict, flavour: str, section: dict) -> str:
+    """The description for one section of the score. With SECTION_INSTRUMENTS "shared"
+    every section keeps the main brief's instruments and only its energy changes."""
+    extra = SECTION_FEEL[section["intensity"] - 1] if C.SECTION_INSTRUMENTS == "shared" \
+        else section["description"]
+    return music_caption(music, ", ".join(x for x in (flavour, extra) if x))

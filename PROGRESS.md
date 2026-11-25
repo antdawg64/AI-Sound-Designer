@@ -401,3 +401,20 @@ piece scored 3. The current tile was not rated; sections with a sharp switch sco
 in round 7, so nothing was applied and the defaults are unchanged
 (`music_scoring: sections`, `section_crossfade_seconds: 0`). Crossfading two separately
 composed sections is clearly worse than a sharp switch. Smoother joins are still open.
+
+## Round 9 (2026-11-25): even smoother music, waiting for Anthony's ratings
+
+Anthony after round 8: "Better, but not smooth enough still" (read as: the one-piece
+version is the right direction). Three new settings:
+
+- `section_instruments: shared`: every section keeps the main brief's instruments and
+  only its energy wording changes (`planning.section_caption`), instead of each section
+  getting its own instrument list from the cue sheet.
+- `repaint_keep_seconds`: with repaint, this long on each side of a section change is
+  left as first composed, so the join itself is never rewritten.
+- `cue_ramp_seconds`: how long the level takes to glide between sections (was fixed 0.8).
+
+Page run `20261125-050613`: current (sections, own instruments), same band, one piece
+same band, one piece joins kept, one piece gentle (3 s glide).
+
+| 2026-11-25 | Round 9: shared instruments, kept joins, slow glide | 75 | $0.04 est. |
