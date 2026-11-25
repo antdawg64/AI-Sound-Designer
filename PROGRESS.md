@@ -29,8 +29,8 @@ Phase 2.
 
 - The Claude key is in the Modal secret **`anthropic-secret`** (not `anthropic`).
 - Modal sign-in from a cloud session: `modal token new` loses its connection while
-  waiting. Use the token flow with short waits and retries instead (create the flow
-  once, poll `TokenFlowWait` with an 8 s timeout). The token is stored in
+  waiting. Use `python scripts/modal_login.py` instead (run it in the background; it
+  prints the link, then polls with short waits and retries). The token is stored in
   `~/.modal.toml`, which does not survive into a new thread, so a new thread needs a
   new sign-in link from Anthony (or the keys as environment variables).
 - The cloud environment must allow `input-plane.us-east.modal.com` (added, along with
