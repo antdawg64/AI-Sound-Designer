@@ -107,6 +107,8 @@ def analyze(jobs: list[dict], min_jobs: int) -> tuple[list[dict], list[dict], li
             "effects_muted": mix["effects_muted"], "music_muted": mix["music_muted"],
             "music_vs_effects_db": round(mix["music_db"] - fx_change, 2),
             "clips": len(job["clips"]),
+            "cut_by_person": sum(c.get("origin") == "cut" for c in job["clips"]),
+            "copies": sum(c.get("origin") == "copy" for c in job["clips"]),
             "deleted": sum(c["deleted"] for c in job["clips"]),
             "muted": sum(c["muted"] for c in job["clips"]),
             "moved": sum(abs(c["moved_seconds"]) > 0.02 for c in job["clips"]),
@@ -115,7 +117,7 @@ def analyze(jobs: list[dict], min_jobs: int) -> tuple[list[dict], list[dict], li
         })
         for c in job["clips"]:
             clip_rows.append({"job_id": job["job_id"], **{k: c.get(k) for k in (
-                "id", "kind", "label", "loudness", "start", "duration", "level_db",
+                "id", "src", "origin", "kind", "label", "loudness", "start", "duration", "level_db",
                 "moved_seconds", "gain_db", "muted", "deleted")},
                 "removed": c["deleted"] or c["muted"],
                 "has_voice": job.get("has_voice"), "effects_db": mix["effects_db"]})
@@ -152,7 +154,7 @@ def analyze(jobs: list[dict], min_jobs: int) -> tuple[list[dict], list[dict], li
     # 2. Sounds people take out or change, by kind.
     lines += ["## Which sounds get removed or changed", ""]
     for kind, title in (("moment", "Key moments"), ("background", "Background sounds")):
-        mine = [c for c in clip_rows if c["kind"] == kind]
+        mine = [c for c in clip_rows if c["kind"] == kind and c.get("origin") != "copy"]
         if not mine:
             continue
         gone = [c for c in mine if c["removed"]]
@@ -203,9 +205,12 @@ def analyze(jobs: list[dict], min_jobs: int) -> tuple[list[dict], list[dict], li
         lines.append("")
 
     # 4. How much editing happens at all.
+    copies = sum(j["copies"] for j in job_rows)
+    cuts = sum(j["cut_by_person"] for j in job_rows)
     acts = Counter(e.get("type") for j in jobs for e in j["events"])
     lines += ["## How people use the editor", "",
               f"- Videos where a new version was made: {_share(sum(j['renders'] > 0 for j in job_rows), n)}.",
+              f"- Sounds people duplicated: {copies}. Pieces people cut themselves: {cuts}.",
               "- Actions: " + (", ".join(f"{k} {v}" for k, v in acts.most_common() if k not in ("open",)) or "none"),
               ""]
 

@@ -178,7 +178,7 @@
 <div class="transport">
   <button id="play" title="Play or pause (Space)" aria-label="Play">▶</button>
   <span id="time">0:00.0 / 0:00.0</span>
-  <span class="hint">Drag a sound to move it. Click one to change its volume, mute it or remove it.</span>
+  <span class="hint">Drag a sound to move it. Click one to change its volume, split it, duplicate it or remove it.</span>
   <label class="zoom">Zoom <input type="range" id="zoom" min="1" max="8" step="0.1" value="1" aria-label="Zoom the timeline"></label>
 </div>
 
@@ -216,22 +216,30 @@ const SESSION = Array.from(crypto.getRandomValues(new Uint8Array(9)), b => b.toS
 const OPENED = Date.now();
 const ROW = { moment: 30, background: 40, music: 54, voice: 36, ruler: 26, gap: 4 };
 const VOL = { min: -24, max: 12, step: 0.5 };
+const EDGE = 0.005, MIN_PIECE = 0.05, MAX_ROWS = 4;   // EDGE: half the fade at a cut (same as the server)
 
-let M = null;            // what the AI made: the list of clips (never changes)
-let S = null;            // the edit: where each clip is now, volumes, mutes
-let byId = {};           // clip id -> its entry in M.clips
-let buffers = {};        // clip id / "music" / "voice" -> decoded sound
+let M = null;            // what the AI made: the sound files and the shots (never changes)
+let FIRST = null;        // the timeline as the AI made it (a list of pieces)
+let S = null;            // the edit: the pieces on the timeline now, volumes, mutes
+let byId = {};           // source id -> its entry in M.clips
+let buffers = {};        // source id / "music" / "voice" -> decoded sound
 let peaks = {};          // the same keys -> loudness outline for drawing
-let selected = null;     // a clip id, "music", or null
+let selected = null;     // a piece id, "music", or null
 let history = [], historyAt = 0;
 let events = [], renders = 0;
 let pps = 40, zoom = 1;  // pixels per second
-let rows = {};           // clip id -> row inside its lane
+let rows = {}, rowCount = { moment: 1, background: 1 };
 let laneOf = {};         // "moment" | "background" | "music" | "voice" -> its element
 
 // ---------------------------------------------------------------- helpers
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const gainOf = db => Math.pow(10, db / 20);
+const piece = id => S.pieces.find(p => p.id === id);
+const lengthOf = p => p.out - p.in;
+const kindOf = p => byId[p.src].kind;
+const homeOf = p => byId[p.src].start + p.in;          // where the AI put this part of the sound
+const isClip = id => id && id !== "music" && !!piece(id);
+const newId = () => "u" + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
 function clock(t) {
   t = Math.max(0, t);
   const m = Math.floor(t / 60), s = t - m * 60;
@@ -249,44 +257,60 @@ limiter.threshold.value = -2; limiter.knee.value = 0; limiter.ratio.value = 20;
 limiter.attack.value = 0.003; limiter.release.value = 0.12;
 const fxBus = ctx.createGain(), musicBus = ctx.createGain();
 fxBus.connect(master); musicBus.connect(master); master.connect(limiter); limiter.connect(ctx.destination);
-const clipGain = {};      // clip id -> its volume node
+const pieceGain = {};     // piece id -> its volume node
 let playing = false, startedAt = 0, startedFrom = 0, position = 0;
-let sources = {};         // key -> the sound that is playing or scheduled
+let sources = {};         // key -> the nodes of a sound that is playing or scheduled
 
 function now() { return playing ? Math.min(M.duration, startedFrom + (ctx.currentTime - startedAt)) : position; }
-
+function gainNode(id) {
+  if (!pieceGain[id]) { pieceGain[id] = ctx.createGain(); pieceGain[id].connect(fxBus); }
+  return pieceGain[id];
+}
 function applyGains() {
   const t = ctx.currentTime;
   fxBus.gain.setTargetAtTime(S.effects_muted ? 0 : gainOf(S.effects_db), t, 0.015);
   musicBus.gain.setTargetAtTime(S.music_muted ? 0 : gainOf(S.music_db), t, 0.015);
-  for (const c of M.clips) {
-    const e = S.clips[c.id];
-    clipGain[c.id].gain.setTargetAtTime(e.muted || e.deleted ? 0 : gainOf(e.gain_db), t, 0.015);
-  }
+  for (const p of S.pieces) gainNode(p.id).gain.setTargetAtTime(p.muted || p.deleted ? 0 : gainOf(p.gain_db), t, 0.015);
 }
 function stopSource(key) {
-  const s = sources[key];
-  if (s) { try { s.stop(); } catch (err) {} s.disconnect(); delete sources[key]; }
+  const nodes = sources[key];
+  if (!nodes) return;
+  try { nodes[0].stop(); } catch (err) {}
+  nodes.forEach(n => n.disconnect());
+  delete sources[key];
 }
-function schedule(key, start, out) {
+// Play part of a sound (from `a` to `b` seconds inside it) so that `a` lands at `start` on
+// the timeline. A cut inside the sound gets a short fade that reaches a little past the
+// cut, so two neighbouring pieces left in place sound exactly like the uncut sound.
+function schedule(key, buffer, a, b, start, out) {
   stopSource(key);
-  const buffer = buffers[key];
   if (!playing || !buffer) return;
-  const pos = now(), offset = pos - start;
-  if (offset >= buffer.duration) return;
-  const src = ctx.createBufferSource();
-  src.buffer = buffer; src.connect(out);
-  if (offset >= 0) src.start(0, offset); else src.start(ctx.currentTime - offset);
-  sources[key] = src;
+  const lead = a > 1e-4 ? Math.min(EDGE, a) : 0, tail = b < buffer.duration - 1e-4 ? Math.min(EDGE, buffer.duration - b) : 0;
+  const first = start - lead, length = (b - a) + lead + tail;
+  const into = now() - first;                 // how far into the piece the playhead already is
+  if (into >= length) return;
+  const src = ctx.createBufferSource(), env = ctx.createGain();
+  src.buffer = buffer; src.connect(env); env.connect(out);
+  const t0 = ctx.currentTime, skip = Math.max(0, into), when = t0 - Math.min(0, into), begin = when - skip;
+  if (lead && skip < 2 * lead) { env.gain.setValueAtTime(skip / (2 * lead), when); env.gain.linearRampToValueAtTime(1, begin + 2 * lead); }
+  else env.gain.setValueAtTime(1, when);
+  if (tail) {
+    const fade = begin + length - 2 * tail;
+    if (fade > when) env.gain.setValueAtTime(1, fade); else env.gain.setValueAtTime((begin + length - when) / (2 * tail), when);
+    env.gain.linearRampToValueAtTime(0, begin + length);
+  }
+  src.start(when, a - lead + skip, length - skip);
+  sources[key] = [src, env];
 }
-function scheduleClip(id) {
-  if (S.clips[id].deleted) return stopSource(id);
-  schedule(id, S.clips[id].start, clipGain[id]);
+function schedulePiece(p) {
+  if (p.deleted) return stopSource(p.id);
+  schedule(p.id, buffers[p.src], p.in, p.out, p.start, gainNode(p.id));
 }
 function scheduleAll() {
-  for (const c of M.clips) scheduleClip(c.id);
-  if (M.has_music) schedule("music", 0, musicBus);
-  if (M.has_voice) schedule("voice", 0, master);
+  Object.keys(sources).forEach(stopSource);
+  for (const p of S.pieces) schedulePiece(p);
+  if (M.has_music) schedule("music", buffers.music, 0, buffers.music.duration, 0, musicBus);
+  if (M.has_voice) schedule("voice", buffers.voice, 0, buffers.voice.duration, 0, master);
 }
 async function play(from) {
   if (ctx.state !== "running") await ctx.resume();
@@ -313,13 +337,12 @@ function seek(t) {
 async function listen(id) {            // hear one sound on its own
   if (ctx.state !== "running") await ctx.resume();
   stopAll();
-  const src = ctx.createBufferSource();
-  src.buffer = buffers[id];
-  const g = ctx.createGain();
-  g.gain.value = gainOf(S.clips[id].gain_db + S.effects_db);
-  src.connect(g); g.connect(master); src.start();
-  sources["listen"] = src;
-  seek(Math.max(0, S.clips[id].start));
+  const p = piece(id), src = ctx.createBufferSource(), g = ctx.createGain();
+  src.buffer = buffers[p.src];
+  g.gain.value = gainOf(p.gain_db + S.effects_db);
+  src.connect(g); g.connect(master); src.start(0, p.in, lengthOf(p));
+  sources["listen"] = [src, g];
+  seek(Math.max(0, p.start));
   log("listen", { clip: id });
 }
 
@@ -337,19 +360,22 @@ function frame() {
   }
   requestAnimationFrame(frame);
 }
+let splitShown = null;
 function drawPlayhead() {
   const t = now();
   $("playhead").style.left = (t * pps) + "px";
   $("time").textContent = clock(t) + " / " + clock(M.duration);
+  const can = !!splitTarget();          // keep the Split button in step with the red line
+  if (can !== splitShown) { splitShown = can; const b = $("split-btn"); if (b) b.disabled = !can; }
 }
 
 // ---------------------------------------------------------------- the edit, undo, saving
+const copyOf = x => JSON.parse(JSON.stringify(x));
 function freshState(saved) {
-  const s = { effects_db: 0, music_db: 0, effects_muted: false, music_muted: false, clips: {} };
-  for (const c of M.clips) s.clips[c.id] = { start: c.start, gain_db: 0, muted: false, deleted: false };
+  const s = { effects_db: 0, music_db: 0, effects_muted: false, music_muted: false, pieces: copyOf(FIRST) };
   if (saved) {
     for (const k of ["effects_db", "music_db", "effects_muted", "music_muted"]) if (k in saved) s[k] = saved[k];
-    for (const [id, e] of Object.entries(saved.clips || {})) if (s.clips[id]) Object.assign(s.clips[id], e);
+    if (Array.isArray(saved.pieces)) s.pieces = copyOf(saved.pieces).filter(p => byId[p.src]);
   }
   return s;
 }
@@ -366,10 +392,10 @@ function travel(step) {
   if (to < 0 || to >= history.length) return;
   historyAt = to; S = JSON.parse(history[to]);
   log(step < 0 ? "undo" : "redo");
-  if (selected && selected !== "music" && S.clips[selected].deleted) selected = null;
   afterChange(true);
 }
 function afterChange(rescheduleAll) {
+  if (selected && selected !== "music" && (!piece(selected) || piece(selected).deleted)) selected = null;
   applyGains();
   if (rescheduleAll && playing) scheduleAll();
   drawClips(); drawHeads(); drawPanel(); drawRemoved();
@@ -417,8 +443,10 @@ function computePeaks(buffer) {
   for (let i = 0; i < n; i++) out[i] /= top;
   return out;
 }
-function drawWave(canvas, key, color, scale) {
-  const p = peaks[key]; if (!p) return;
+function drawWave(canvas, key, color, scale, from, to) {     // from..to: seconds inside the sound
+  const all = peaks[key]; if (!all) return;
+  const lo = from == null ? 0 : Math.floor(from * 200), hi = to == null ? all.length : Math.min(all.length, Math.ceil(to * 200));
+  const span = Math.max(1, hi - lo);
   const dpr = window.devicePixelRatio || 1, w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
   if (canvas.width !== w) canvas.width = w;
   if (canvas.height !== h) canvas.height = h;
@@ -426,27 +454,36 @@ function drawWave(canvas, key, color, scale) {
   g.clearRect(0, 0, w, h); g.fillStyle = color; g.globalAlpha = 0.55;
   const mid = h / 2;
   for (let x = 0; x < w; x++) {
-    const a = Math.floor(x / w * p.length), b = Math.max(a + 1, Math.floor((x + 1) / w * p.length));
-    let m = 0; for (let i = a; i < b && i < p.length; i++) if (p[i] > m) m = p[i];
+    const a = lo + Math.floor(x / w * span), b = Math.max(a + 1, lo + Math.floor((x + 1) / w * span));
+    let m = 0; for (let i = a; i < b && i < hi; i++) if (all[i] > m) m = all[i];
     const y = Math.max(dpr * 0.5, Math.min(1, m * scale) * (mid - 2 * dpr));
     g.fillRect(x, mid - y, 1, 2 * y);
   }
 }
 function cssColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 
+// Put the pieces of each lane in rows so that overlapping sounds never hide each other.
+// A piece keeps its row while there is room for it there.
 function packRows() {
-  const ends = [];
-  M.clips.filter(c => c.kind === "moment").sort((a, b) => a.start - b.start).forEach(c => {
-    let r = ends.findIndex(e => e <= c.start + 0.01);
-    if (r < 0) { r = ends.length; ends.push(0); }
-    ends[r] = c.start + c.duration; rows[c.id] = r;
-  });
-  rows.momentRows = Math.min(3, Math.max(1, ends.length));
-  M.clips.filter(c => c.kind === "moment").forEach(c => rows[c.id] %= rows.momentRows);
-  M.clips.filter(c => c.kind === "background").forEach((c, i) => rows[c.id] = i % 2);
+  for (const kind of ["moment", "background"]) {
+    const ends = [];
+    const list = S.pieces.filter(p => !p.deleted && kindOf(p) === kind).sort((a, b) => a.start - b.start);
+    for (const p of list) {
+      let r = rows[p.id];
+      const free = i => ends[i] == null || ends[i] <= p.start + 0.02;
+      if (r == null || r >= MAX_ROWS || !free(r)) {
+        r = 0; while (r < MAX_ROWS && !free(r)) r++;
+        if (r >= MAX_ROWS) r = ends.indexOf(Math.min(...ends));
+      }
+      while (ends.length <= r) ends.push(null);
+      ends[r] = Math.max(ends[r] == null ? -1e9 : ends[r], p.start + lengthOf(p));
+      rows[p.id] = r;
+    }
+    rowCount[kind] = Math.max(1, ends.length);
+  }
 }
 function laneHeight(kind) {
-  const n = kind === "moment" ? rows.momentRows : kind === "background" ? 2 : 1;
+  const n = kind === "moment" || kind === "background" ? rowCount[kind] : 1;
   return n * (ROW[kind] + ROW.gap) + ROW.gap;
 }
 function has(kind) {
@@ -455,26 +492,16 @@ function has(kind) {
 const LANES = ["moment", "background", "music", "voice"];
 
 function buildTimeline() {
-  packRows();
   const lanes = $("lanes");
   lanes.querySelectorAll(".lane").forEach(n => n.remove());
   for (const kind of LANES) {
     if (!has(kind)) continue;
     const lane = el("div", "lane"); lane.dataset.kind = kind;
-    lane.style.height = laneHeight(kind) + "px";
     lanes.insertBefore(lane, $("playhead"));
     laneOf[kind] = lane;
     lane.addEventListener("pointerdown", e => { if (e.target === lane) { select(null); scrub(e); } });
   }
   $("ruler").style.height = ROW.ruler + "px";
-  for (const c of M.clips) {
-    const b = el("button", "clip " + c.kind); b.dataset.id = c.id; b.title = c.label;
-    b.appendChild(el("canvas")); b.appendChild(el("span", "label", c.label));
-    b.style.height = ROW[c.kind] + "px";
-    b.style.top = (ROW.gap + rows[c.id] * (ROW[c.kind] + ROW.gap)) + "px";
-    b.addEventListener("pointerdown", e => startDrag(e, c.id));
-    laneOf[c.kind].appendChild(b);
-  }
   for (const key of ["music", "voice"]) {
     if (!has(key)) continue;
     const b = el("button", "clip " + key); b.dataset.id = key;
@@ -490,13 +517,11 @@ function layout() {
   const sc = $("scroll");
   pps = Math.max(8, (sc.clientWidth - 2) / M.duration) * zoom;
   $("lanes").style.width = Math.ceil(M.duration * pps) + "px";
-  // ruler
   const ruler = $("ruler"); ruler.textContent = "";
   const step = [0.5, 1, 2, 5, 10, 15, 30, 60].find(s => s * pps >= 64) || 60;
   for (let t = 0; t < M.duration; t += step) {
     const k = el("div", "tick", clock(t).replace(/\.0$/, "")); k.style.left = (t * pps) + "px"; ruler.appendChild(k);
   }
-  // cut lines
   $("lanes").querySelectorAll(".cut").forEach(n => n.remove());
   for (const s of M.shots.slice(1)) {
     const c = el("div", "cut"); c.style.left = (s.start * pps) + "px"; c.style.top = ROW.ruler + "px";
@@ -506,24 +531,31 @@ function layout() {
   drawPlayhead();
 }
 function drawClips() {
-  for (const node of $("lanes").querySelectorAll(".clip")) {
-    const id = node.dataset.id;
-    if (id === "music" || id === "voice") {
-      node.style.left = "0px"; node.style.width = (M.duration * pps) + "px";
-      node.classList.toggle("off", id === "music" && S.music_muted);
-      node.classList.toggle("selected", selected === id);
-      drawWave(node.firstChild, id, cssColor("--" + id), id === "music" ? clamp(gainOf(S.music_db), 0.15, 1.6) : 1);
-      continue;
-    }
-    const c = byId[id], e = S.clips[id];
-    node.classList.toggle("hidden", e.deleted);
-    if (e.deleted) continue;
-    node.style.left = (e.start * pps) + "px";
-    node.style.width = Math.max(6, c.duration * pps) + "px";
-    node.classList.toggle("off", e.muted || S.effects_muted);
-    node.classList.toggle("selected", selected === id);
-    node.classList.toggle("moved", Math.abs(e.start - c.start) > 0.005);
-    drawWave(node.firstChild, id, cssColor(c.kind === "moment" ? "--moment" : "--bg-clip"), clamp(gainOf(e.gain_db + S.effects_db), 0.15, 1.6));
+  packRows();
+  for (const kind of LANES) if (laneOf[kind]) laneOf[kind].style.height = laneHeight(kind) + "px";
+  for (const key of ["music", "voice"]) {
+    const node = laneOf[key] && laneOf[key].querySelector(".clip"); if (!node) continue;
+    node.style.left = "0px"; node.style.width = (M.duration * pps) + "px";
+    node.classList.toggle("off", key === "music" && S.music_muted);
+    node.classList.toggle("selected", selected === key);
+    drawWave(node.firstChild, key, cssColor("--" + key), key === "music" ? clamp(gainOf(S.music_db), 0.15, 1.6) : 1);
+  }
+  for (const kind of ["moment", "background"]) if (laneOf[kind]) laneOf[kind].querySelectorAll(".clip").forEach(n => n.remove());
+  for (const p of S.pieces) {
+    if (p.deleted) continue;
+    const kind = kindOf(p);
+    const b = el("button", "clip " + kind); b.dataset.id = p.id; b.title = p.label;
+    b.appendChild(el("canvas")); b.appendChild(el("span", "label", p.label));
+    b.style.height = ROW[kind] + "px";
+    b.style.top = (ROW.gap + rows[p.id] * (ROW[kind] + ROW.gap)) + "px";
+    b.style.left = (p.start * pps) + "px";
+    b.style.width = Math.max(6, lengthOf(p) * pps - 2) + "px";      // 2px so neighbours read as separate clips
+    if (p.muted || S.effects_muted) b.classList.add("off");
+    if (selected === p.id) b.classList.add("selected");
+    if (Math.abs(p.start - homeOf(p)) > 0.005) b.classList.add("moved");
+    b.addEventListener("pointerdown", e => startDrag(e, p.id));
+    laneOf[kind].appendChild(b);
+    drawWave(b.firstChild, p.src, cssColor(kind === "moment" ? "--moment" : "--bg-clip"), clamp(gainOf(p.gain_db + S.effects_db), 0.15, 1.6), p.in, p.out);
   }
 }
 
@@ -575,114 +607,142 @@ function drawHeads() {
 }
 
 function drawPanel() {
-  const p = $("panel"); p.textContent = "";
+  const panel = $("panel"); panel.textContent = ""; splitShown = null;
   if (selected === "music") {
-    p.appendChild(el("span", "tag music", "Music"));
-    p.appendChild(el("h2", null, shortLabel(M.music.label || "Background music", 120)));
-    p.appendChild(el("p", "muted", "Use the Music slider on the left of the timeline to make it louder or quieter, or press Mute to hear the video without it."));
+    panel.appendChild(el("span", "tag music", "Music"));
+    panel.appendChild(el("h2", null, shortLabel(M.music.label || "Background music", 120)));
+    panel.appendChild(el("p", "muted", "Use the Music slider on the left of the timeline to make it louder or quieter, or press Mute to hear the video without it."));
     return;
   }
   if (!selected) {
-    p.appendChild(el("h2", null, "Make it yours"));
-    p.appendChild(el("p", "muted", "The AI placed every sound. Now you can adjust anything that isn't quite right."));
+    panel.appendChild(el("h2", null, "Make it yours"));
+    panel.appendChild(el("p", "muted", "The AI placed every sound. Now you can adjust anything that isn't quite right."));
     const ul = el("ul");
     for (const html of [
       "<b>Drag</b> a sound left or right to change when it happens.",
-      "<b>Click</b> a sound to change its volume, mute it or remove it.",
+      "<b>Click</b> a sound to change its volume, mute it, remove it or <b>duplicate</b> it.",
+      "<b>Split</b> a sound in two: put the red line where you want the cut, click the sound and press Split.",
       "Use the sliders on the left to balance <b>effects</b> against <b>music</b>.",
-      "Press <kbd>Space</kbd> to play or pause. <kbd>←</kbd> <kbd>→</kbd> nudge the selected sound.",
+      "<kbd>Space</kbd> plays or pauses. <kbd>←</kbd> <kbd>→</kbd> nudge, <kbd>S</kbd> splits, <kbd>D</kbd> duplicates.",
       "When you're happy, press <b>Make my video</b>."]) { const li = el("li"); li.innerHTML = html; ul.appendChild(li); }
-    p.appendChild(ul);
-    p.appendChild(el("p", "muted", "")).style.fontSize = "12px";
-    p.lastChild.textContent = "Your changes are saved as you go. We also keep them, without your video or anything about you, to make the automatic sound better.";
+    panel.appendChild(ul);
+    const note = el("p", "muted", "Your changes are saved as you go. We also keep them, without your video or anything about you, to make the automatic sound better.");
+    note.style.fontSize = "12px"; panel.appendChild(note);
     return;
   }
-  const c = byId[selected], e = S.clips[selected];
-  p.appendChild(el("span", "tag " + c.kind, c.kind === "moment" ? "Key moment" : "Background sound"));
-  p.appendChild(el("h2", null, shortLabel(c.label, 140)));
-  const moved = e.start - c.start;
-  p.appendChild(el("p", "muted", "Starts at " + clock(Math.max(0, e.start)) + (Math.abs(moved) > 0.005 ? " (moved " + (moved > 0 ? "+" : "−") + Math.abs(moved).toFixed(2) + " s)" : "")));
+  const p = piece(selected), kind = kindOf(p);
+  panel.appendChild(el("span", "tag " + kind, kind === "moment" ? "Key moment" : "Background sound"));
+  panel.appendChild(el("h2", null, shortLabel(p.label, 140)));
+  const moved = p.start - homeOf(p);
+  panel.appendChild(el("p", "muted", "Starts at " + clock(Math.max(0, p.start)) + " · " + lengthOf(p).toFixed(1) + " s long" +
+    (Math.abs(moved) > 0.005 ? " · moved " + (moved > 0 ? "+" : "−") + Math.abs(moved).toFixed(2) + " s" : "")));
   const f = el("div", "field");
-  const lab = el("label", null, "Volume"); f.appendChild(lab);
-  f.appendChild(slider(e.gain_db, v => { e.gain_db = v; applyGains(); },
-    v => { e.gain_db = v; commit("clip_volume", { clip: selected, to: v }); }, "Volume of this sound"));
-  p.appendChild(f);
+  f.appendChild(el("label", null, "Volume"));
+  f.appendChild(slider(p.gain_db, v => { p.gain_db = v; applyGains(); },
+    v => { p.gain_db = v; commit("clip_volume", { clip: p.id, to: v }); }, "Volume of this sound"));
+  panel.appendChild(f);
   const row = el("div", "row");
-  const hear = el("button", null, "▶ Listen"); hear.title = "Hear this sound on its own";
-  hear.addEventListener("click", () => listen(selected));
-  const mute = el("button", e.muted ? "on" : "", e.muted ? "Unmute" : "Mute"); mute.title = "Mute or unmute (M)";
-  mute.addEventListener("click", () => toggleMute(selected));
-  const del = el("button", "danger", "Remove"); del.title = "Remove this sound (Delete)";
-  del.addEventListener("click", () => removeClip(selected));
-  row.appendChild(hear); row.appendChild(mute); row.appendChild(del);
-  if (Math.abs(moved) > 0.005 || e.gain_db || e.muted) {
-    const back = el("button", null, "Put back");
-    back.title = "Undo every change to this sound";
-    back.addEventListener("click", () => { S.clips[selected] = { start: c.start, gain_db: 0, muted: false, deleted: false }; if (playing) scheduleClip(selected); commit("clip_reset", { clip: selected }); });
-    row.appendChild(back);
-  }
-  p.appendChild(row);
+  const add = (text, title, fn, cls) => { const b = el("button", cls || "", text); b.title = title; b.addEventListener("click", fn); row.appendChild(b); return b; };
+  add("▶ Listen", "Hear this sound on its own", () => listen(p.id));
+  add("Split", "Cut this sound in two at the red line (S)", () => splitAtPlayhead()).id = "split-btn";
+  add("Duplicate", "Make a copy of this sound (D)", () => duplicate(p.id));
+  add(p.muted ? "Unmute" : "Mute", "Mute or unmute (M)", () => toggleMute(p.id), p.muted ? "on" : "");
+  add("Remove", "Remove this sound (Delete)", () => removeClip(p.id), "danger");
+  if (Math.abs(moved) > 0.005 || p.gain_db || p.muted)
+    add("Put back", "Undo the move, volume and mute of this sound", () => {
+      p.start = +homeOf(p).toFixed(6); p.gain_db = 0; p.muted = false;
+      if (playing) schedulePiece(p); commit("clip_reset", { clip: p.id });
+    });
+  panel.appendChild(row);
+  const tip = el("p", "muted", "To split, move the red line onto this sound where you want the cut.");
+  tip.style.fontSize = "12px"; panel.appendChild(tip);
+  drawPlayhead();
 }
 function drawRemoved() {
   const box = $("removed"); box.textContent = "";
-  const gone = M.clips.filter(c => S.clips[c.id].deleted);
+  const gone = S.pieces.filter(p => p.deleted);
   if (gone.length) {
     box.appendChild(el("span", "muted", "Removed:"));
-    for (const c of gone) {
-      const b = el("button", null, "↩ " + shortLabel(c.label, 34)); b.title = "Put back: " + c.label;
-      b.addEventListener("click", () => { S.clips[c.id].deleted = false; if (playing) scheduleClip(c.id); select(c.id, true); commit("restore", { clip: c.id }); });
+    for (const p of gone) {
+      const b = el("button", null, "↩ " + shortLabel(p.label, 34)); b.title = "Put back: " + p.label;
+      b.addEventListener("click", () => { p.deleted = false; if (playing) schedulePiece(p); selected = p.id; commit("restore", { clip: p.id }); });
       box.appendChild(b);
     }
   }
-  const n = el("span", "note", gone.length ? "" : "Tip: nothing is lost. Removed sounds wait here, and Undo brings back any change.");
-  box.appendChild(n);
+  box.appendChild(el("span", "note", gone.length ? "" : "Tip: nothing is lost. Removed sounds wait here, and Undo brings back any change."));
 }
 
 // ---------------------------------------------------------------- actions
-function select(id, quiet) {
-  selected = id;
-  if (!quiet) { drawClips(); drawPanel(); }
-}
+function select(id) { selected = id; drawClips(); drawPanel(); }
 function toggleMute(id) {
-  const e = S.clips[id]; e.muted = !e.muted;
-  commit(e.muted ? "mute" : "unmute", { clip: id });
+  const p = piece(id); p.muted = !p.muted;
+  commit(p.muted ? "mute" : "unmute", { clip: id });
 }
 function removeClip(id) {
-  S.clips[id].deleted = true; stopSource(id); selected = null;
-  commit("delete", { clip: id, at: +S.clips[id].start.toFixed(3) });
+  const p = piece(id); p.deleted = true; stopSource(id); selected = null;
+  commit("delete", { clip: id, at: +p.start.toFixed(3) });
 }
-function moveLimits(id) { return [0.1 - byId[id].duration, M.duration - 0.1]; }
+function moveLimits(p) { return [0.1 - lengthOf(p), M.duration - 0.1]; }
 function nudge(id, by) {
-  const e = S.clips[id], from = e.start, [lo, hi] = moveLimits(id);
-  e.start = +clamp(e.start + by, lo, hi).toFixed(4);
-  if (e.start === from) return;
-  if (playing) scheduleClip(id);
-  commit("move", { clip: id, from: +from.toFixed(3), to: e.start, how: "keys" });
+  const p = piece(id), from = p.start, [lo, hi] = moveLimits(p);
+  p.start = +clamp(p.start + by, lo, hi).toFixed(4);
+  if (p.start === from) return;
+  if (playing) schedulePiece(p);
+  commit("move", { clip: id, from: +from.toFixed(3), to: p.start, how: "keys" });
+}
+// The piece the red line would cut: the selected one if the line is on it.
+function splitTarget() {
+  if (!S || !isClip(selected)) return null;
+  const p = piece(selected), at = now() - p.start;
+  return !p.deleted && at >= MIN_PIECE && at <= lengthOf(p) - MIN_PIECE ? p : null;
+}
+function splitAtPlayhead() {
+  const p = splitTarget();
+  if (!p) return;
+  const at = +(p.in + now() - p.start).toFixed(6);
+  const right = Object.assign(copyOf(p), { id: newId(), in: at, start: +(p.start + (at - p.in)).toFixed(6) });
+  p.out = at;
+  S.pieces.splice(S.pieces.indexOf(p) + 1, 0, right);
+  rows[right.id] = rows[p.id];
+  if (playing) { schedulePiece(p); schedulePiece(right); }
+  selected = right.id;
+  commit("split", { clip: p.id, made: right.id, at: +now().toFixed(3) });
+}
+function duplicate(id) {
+  const p = piece(id), len = lengthOf(p), [lo, hi] = moveLimits(p);
+  let start = p.start + len;                       // right after the original, if it fits
+  if (start + len > M.duration) start = p.start - len >= 0 ? p.start - len : p.start + 0.3;
+  const twin = Object.assign(copyOf(p), { id: newId(), start: +clamp(start, lo, hi).toFixed(6), deleted: false });
+  S.pieces.splice(S.pieces.indexOf(p) + 1, 0, twin);
+  if (playing) schedulePiece(twin);
+  selected = twin.id;
+  commit("duplicate", { clip: id, made: twin.id, to: +twin.start.toFixed(3) });
 }
 function startDrag(ev, id) {
   if (ev.button) return;
   ev.preventDefault();
-  const node = ev.currentTarget, e = S.clips[id], from = e.start, x0 = ev.clientX, [lo, hi] = moveLimits(id);
+  const p = piece(id), from = p.start, x0 = ev.clientX, [lo, hi] = moveLimits(p);
   let moved = false, last = 0;
-  select(id);
+  if (selected !== id) { selected = id; drawPanel(); $("lanes").querySelectorAll(".clip").forEach(n => n.classList.toggle("selected", n.dataset.id === id)); }
+  const node = ev.currentTarget;
   node.setPointerCapture(ev.pointerId);
   const label = node.querySelector(".label"), text = label.textContent;
   const onMove = m => {
     const dx = m.clientX - x0;
     if (!moved && Math.abs(dx) < 3) return;
     moved = true; node.classList.add("dragging");
-    e.start = +clamp(from + dx / pps, lo, hi).toFixed(4);
-    node.style.left = (e.start * pps) + "px";
-    label.textContent = clock(Math.max(0, e.start)) + "  " + text;
-    if (playing && performance.now() - last > 140) { last = performance.now(); scheduleClip(id); }
+    p.start = +clamp(from + dx / pps, lo, hi).toFixed(4);
+    node.style.left = (p.start * pps) + "px";
+    label.textContent = clock(Math.max(0, p.start)) + "  " + text;
+    if (playing && performance.now() - last > 140) { last = performance.now(); schedulePiece(p); }
   };
   const onUp = () => {
     node.removeEventListener("pointermove", onMove); node.removeEventListener("pointerup", onUp); node.removeEventListener("pointercancel", onUp);
     node.classList.remove("dragging"); label.textContent = text;
-    if (moved && e.start !== from) {
-      if (playing) scheduleClip(id);
-      commit("move", { clip: id, from: +from.toFixed(3), to: e.start, how: "drag" });
-    } else node.focus();
+    if (moved && p.start !== from) {
+      if (playing) schedulePiece(p);
+      commit("move", { clip: id, from: +from.toFixed(3), to: p.start, how: "drag" });
+    }
   };
   node.addEventListener("pointermove", onMove); node.addEventListener("pointerup", onUp); node.addEventListener("pointercancel", onUp);
 }
@@ -700,7 +760,7 @@ $("play").addEventListener("click", () => { if (playing) stopAll(); else play();
 $("undo").addEventListener("click", () => travel(-1));
 $("redo").addEventListener("click", () => travel(1));
 $("reset").addEventListener("click", () => {
-  S = freshState(); selected = null;
+  S = freshState(); selected = null; rows = {};
   if (playing) scheduleAll();
   commit("reset_all");
 });
@@ -713,9 +773,10 @@ window.addEventListener("resize", () => { if (M) layout(); });
 document.addEventListener("keydown", e => {
   if (!M || $("result").open) return;
   const tag = (e.target.tagName || "").toLowerCase(), typing = tag === "input" || tag === "textarea" || tag === "select";
-  const mod = e.ctrlKey || e.metaKey, clip = selected && selected !== "music" ? selected : null;
-  if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); travel(e.shiftKey ? 1 : -1); return; }
-  if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); travel(1); return; }
+  const mod = e.ctrlKey || e.metaKey, clip = isClip(selected) ? selected : null, key = e.key.toLowerCase();
+  if (mod && key === "z") { e.preventDefault(); travel(e.shiftKey ? 1 : -1); return; }
+  if (mod && key === "y") { e.preventDefault(); travel(1); return; }
+  if (mod && key === "d" && clip) { e.preventDefault(); duplicate(clip); return; }
   if (mod || e.altKey) return;
   if (e.key === " " && tag !== "input") { e.preventDefault(); if (playing) stopAll(); else play(); return; }
   if (typing) return;
@@ -723,7 +784,9 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") { select(null); return; }
   if (!clip) return;
   if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeClip(clip); }
-  else if (e.key.toLowerCase() === "m") toggleMute(clip);
+  else if (key === "m") toggleMute(clip);
+  else if (key === "s") splitAtPlayhead();
+  else if (key === "d") duplicate(clip);
   else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); nudge(clip, (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 0.2 : 0.04)); }
 });
 
@@ -774,8 +837,8 @@ async function start() {
     if (!r.ok) { const b = await r.json().catch(() => ({})); return fail("Can't open the editor", b.detail || "That video wasn't found."); }
     info = await r.json();
   } catch (err) { return fail("Can't open the editor", "Please check your connection and reload this page."); }
-  M = info.manifest;
-  for (const c of M.clips) { byId[c.id] = c; clipGain[c.id] = ctx.createGain(); clipGain[c.id].connect(fxBus); }
+  M = info.manifest; FIRST = info.initial;
+  for (const c of M.clips) byId[c.id] = c;
   S = freshState(info.state);
   history = [JSON.stringify(S)]; historyAt = 0;
   master.gain.value = gainOf(M.preview_gain_db || 0);
@@ -802,7 +865,7 @@ async function start() {
   buildTimeline(); drawHeads(); drawPanel(); drawRemoved(); applyGains();
   $("reset").disabled = !isChanged();
   $("save-status").textContent = isChanged() ? "Your earlier changes are loaded" : "";
-  log("open", { clips: M.clips.length, changed: isChanged() });
+  log("open", { clips: S.pieces.length, changed: isChanged() });
   $("cover").classList.add("hidden");
   requestAnimationFrame(frame);
 }

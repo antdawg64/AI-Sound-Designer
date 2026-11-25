@@ -10,6 +10,12 @@ opens a timeline editor (`/edit/<job id>`, desktop first).
 - Every effect is its own clip: drag to move, click for volume / mute / remove / listen,
   arrow keys to nudge, undo and redo, "Start over". One volume slider and mute for all
   effects and one for the music. Playback is instant in the browser (no server, no cost).
+- Since the evening of 2026-11-25 the timeline is made of **pieces**: each background
+  clip starts out cut into one piece per shot (labelled with that shot's sounds), and
+  any piece can be **split** at the red line (S) or **duplicated** (D). The sounds
+  inside one piece are still one recording from the effects model and cannot be pulled
+  apart; truly separate sounds would mean generating each one on its own (more GPU
+  time, and the sound would need re-tuning). Anthony asked for this after his first try.
 - **Make my video** remixes on the server (about 15 s, no GPU) and offers the edited
   video, effects and music as downloads. The original files are kept.
 - How it works: `mixing.effects_layers` builds the effects track as one layer per

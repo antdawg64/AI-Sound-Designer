@@ -67,21 +67,50 @@ def test_build_edit_and_tuning_record(tmp_path):
     assert [c["id"] for c in manifest["clips"]] == ["bg0", "bg1", "m0"]
     assert [c["loudness"] for c in manifest["clips"]] == ["loud", "quiet", "loud"]
 
+    first = editor.initial_pieces(manifest)
+    assert [p["id"] for p in first] == ["bg0", "bg1", "m0"]
     untouched = editor.clean_state({}, manifest)
-    assert not editor.is_changed(untouched)
-    track = editor.effects_track(tmp_path, manifest, untouched)
-    assert np.abs(track - sum(layers)).max() < 1e-3          # 16-bit files
+    assert not editor.is_changed(untouched, manifest)
+    whole = sum(layers)
+    assert np.abs(editor.effects_track(tmp_path, manifest, untouched) - whole).max() < 1e-3   # 16-bit files
 
-    state = editor.clean_state({"music_db": 99, "effects_db": "x", "clips": {
-        "m0": {"start": 4.0, "gain_db": -3}, "bg1": {"deleted": True}, "nope": {"start": 1}}}, manifest)
+    # Cutting a piece in two and leaving both halves in place changes nothing you can hear.
+    cut = [dict(p) for p in first]
+    left, right = dict(cut[0], id="a", out=1.3), dict(cut[0], id="b", start=cut[0]["start"] + 1.3)
+    right["in"] = 1.3
+    state = editor.clean_state({"pieces": [left, right, *cut[1:]]}, manifest)
+    assert editor.is_changed(state, manifest)
+    assert np.abs(editor.effects_track(tmp_path, manifest, state) - whole).max() < 1e-3
+
+    # Move the moment, remove bg1, duplicate the moment, and send some nonsense.
+    m0 = dict(cut[2], start=4.0, gain_db=-3)
+    copy = dict(cut[2], id="copy1", start=0.5)
+    state = editor.clean_state({"music_db": 99, "effects_db": "x", "pieces": [
+        cut[0], dict(cut[1], deleted=True), m0, copy, {"src": "nope"}, "junk",
+        dict(cut[0], id="bad", **{"in": 5.0, "out": 1.0})]}, manifest)
     assert state["music_db"] == 12.0 and state["effects_db"] == 0.0
-    assert set(state["clips"]) == {"m0", "bg1"}
+    assert [p["id"] for p in state["pieces"]][:4] == ["bg0", "bg1", "m0", "copy1"]
     moved = editor.effects_track(tmp_path, manifest, state)
-    assert np.abs(moved[int(5.9 * SR):]).max() == 0.0        # bg1 is gone
+    assert np.abs(moved[int(5.9 * SR):]).max() == 0.0             # bg1 is gone
     assert np.abs(moved[int(4.1 * SR):int(5.4 * SR)]).max() > 0   # m0 now plays here
 
     record = editor.tuning_record(manifest, state, job={"id": "j"}, report=None, session="s",
                                   events=[{"t": 1, "type": "move", "clip": "m0"}, "junk"], renders=1)
     by_id = {c["id"]: c for c in record["clips"]}
     assert by_id["m0"]["moved_seconds"] == round(4.0 - manifest["clips"][2]["start"], 3)
+    assert by_id["m0"]["origin"] == "ai" and by_id["copy1"]["origin"] == "copy"
     assert by_id["bg1"]["deleted"] and record["changed"] and len(record["events"]) == 1
+
+
+def test_background_clips_are_cut_per_shot():
+    manifest = {"duration": 10.0, "shots": [{"start": 0.0, "end": 3.0}, {"start": 3.0, "end": 7.0},
+                                            {"start": 7.0, "end": 10.0}],
+                "shot_labels": ["hum", "steps", "door"],
+                "clips": [{"id": "bg0", "kind": "background", "label": "hum, steps, door", "start": 0.0,
+                           "duration": 10.0, "shots": [0, 1, 2], "file": "bg0.flac"},
+                          {"id": "m0", "kind": "moment", "label": "click", "start": 2.0, "duration": 1.5,
+                           "file": "m0.flac"}]}
+    pieces = editor.initial_pieces(manifest)
+    assert [(p["id"], p["in"], p["out"], p["label"]) for p in pieces] == [
+        ("bg0.0", 0.0, 3.0, "hum"), ("bg0.1", 3.0, 7.0, "steps"), ("bg0.2", 7.0, 10.0, "door"),
+        ("m0", 0.0, 1.5, "click")]

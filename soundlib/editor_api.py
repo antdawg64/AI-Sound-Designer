@@ -75,7 +75,8 @@ def attach(api, *, jobs: Path, get_job: Callable[[str], dict | None], refresh: C
         job, out, manifest = editable(job_id, fresh=True)
         rendered = out / editor.EDITED / "render.json"
         return {"job": {k: job[k] for k in ("id", "name", "seconds", "test_tones") if k in job},
-                "manifest": manifest, "state": editor.load_state(out, manifest),
+                "manifest": manifest, "initial": editor.initial_pieces(manifest),
+                "state": editor.load_state(out, manifest),
                 "rendered": json.loads(rendered.read_text()) if rendered.exists() else None,
                 "keep_days": C.WEB_KEEP_DAYS, "gain_range_db": editor.GAIN_RANGE_DB}
 

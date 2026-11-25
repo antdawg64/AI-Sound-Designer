@@ -11,10 +11,16 @@ for all the effects and one for the music.
   tuning_record()  - one self-contained record of what a person changed, for
                      analyze_edits.py to learn better defaults from
 
-An "edit" (the state) looks like:
+An "edit" (the state) is the list of pieces on the timeline. A piece plays part of one
+of the saved effect files (its source), from `in` to `out` seconds inside that file,
+starting at `start` seconds in the video:
     {"effects_db": 0, "music_db": 0, "effects_muted": false, "music_muted": false,
-     "clips": {"bg0": {"start": 1.25, "gain_db": -3, "muted": false, "deleted": false}}}
-A clip that is not listed is unchanged.
+     "pieces": [{"id": "bg1.0", "src": "bg1", "in": 0.0, "out": 2.4, "start": 5.2,
+                 "gain_db": 0, "muted": false, "deleted": false}]}
+To begin with (initial_pieces) every key moment is one piece and every background clip
+is cut into one piece per shot. People can cut pieces further and duplicate them.
+Neighbouring pieces overlap by a few milliseconds with matching fades, so an untouched
+cut is inaudible and a moved piece never clicks.
 """
 
 from __future__ import annotations
@@ -36,7 +42,10 @@ MANIFEST = "editor.json"
 STATE = "edit.json"
 EDITED = "edited"            # where render() writes, inside out/
 GAIN_RANGE_DB = (-40.0, 12.0)
-SCHEMA = 1
+SCHEMA = 2
+EDGE = 0.005              # half the length of the fade at a cut, in seconds
+MIN_PIECE = 0.05          # shortest piece, in seconds
+MAX_PIECES = 400
 
 
 # --- Saving the pieces when the sound is made --------------------------------------
@@ -128,15 +137,75 @@ def build(out_dir: Path, *, segments: list[dict], spots: list[dict], layers: lis
         "preview_gain_db": round(20 * float(np.log10(max(preview_gain, 1e-6))), 2),
         "shots": [{"start": s["start"], "end": s["end"]} for s in shots],
         "summary": plan.get("summary", ""),
+        "shot_labels": _shot_labels(plan, shots),
         "clips": clips,
     }
     (out_dir / MANIFEST).write_text(json.dumps(manifest, indent=2))
     return manifest
 
 
+def _shot_labels(plan: dict, shots: list[dict]) -> list[str]:
+    """What the plan asked for in each shot, worded the way the effects model was told."""
+    from . import planning
+
+    labels = []
+    for n, shot in enumerate(shots):
+        try:
+            labels.append(planning.segment_prompt(
+                plan, {"shot": n, "shots": [n], "start": shot["start"], "end": shot["end"]})[0])
+        except Exception:
+            labels.append("")
+    return labels
+
+
 def load_manifest(out_dir: Path) -> dict | None:
     path = out_dir / MANIFEST
-    return json.loads(path.read_text()) if path.exists() else None
+    if not path.exists():
+        return None
+    manifest = json.loads(path.read_text())
+    if "shot_labels" not in manifest:      # a job made before clips were split by shot
+        plan = out_dir / "plan.json"
+        manifest["shot_labels"] = (_shot_labels(json.loads(plan.read_text()), manifest["shots"])
+                                   if plan.exists() else [])
+    return manifest
+
+
+# --- Pieces: what is on the timeline ---------------------------------------------------
+
+def initial_pieces(manifest: dict) -> list[dict]:
+    """The timeline as the AI made it: each key moment is one piece, and each background
+    clip (which can span several shots) is cut into one piece per shot."""
+    labels, shots = manifest.get("shot_labels") or [], manifest["shots"]
+    pieces = []
+    for clip in manifest["clips"]:
+        cuts = []
+        if clip["kind"] == "background":
+            for n in clip.get("shots", [])[1:]:
+                at = shots[n]["start"] - clip["start"] if n < len(shots) else -1
+                if 0.2 < at < clip["duration"] - 0.2 and (not cuts or at - cuts[-1] > 0.2):
+                    cuts.append(round(at, 6))
+        edges = [0.0, *cuts, clip["duration"]]
+        for i, (a, b) in enumerate(zip(edges[:-1], edges[1:])):
+            label = clip["label"]
+            if cuts:
+                middle = clip["start"] + (a + b) / 2
+                shot = next((n for n in clip["shots"] if n < len(shots)
+                             and shots[n]["start"] <= middle < shots[n]["end"]), None)
+                if shot is not None and shot < len(labels) and labels[shot]:
+                    label = labels[shot]
+            pieces.append({"id": f"{clip['id']}.{i}" if cuts else clip["id"], "src": clip["id"],
+                           "in": a, "out": b, "start": round(clip["start"] + a, 6),
+                           "gain_db": 0.0, "muted": False, "deleted": False, "label": label})
+    return pieces
+
+
+def _label_for(first: list[dict], src: str, middle: float, fallback: str) -> str:
+    """The label of the original piece of this source that covers `middle` (seconds into it)."""
+    mine = [p for p in first if p["src"] == src]
+    for p in mine:
+        if p["in"] <= middle < p["out"]:
+            return p["label"]
+    return mine[-1]["label"] if mine else fallback
 
 
 # --- Edits from the browser -----------------------------------------------------------
@@ -150,36 +219,53 @@ def _number(value, low: float, high: float, default: float) -> float:
 
 
 def clean_state(state: dict | None, manifest: dict) -> dict:
-    """An edit with every value checked and kept in range. Unchanged clips are left out."""
+    """An edit with every value checked and kept in range."""
     state = state if isinstance(state, dict) else {}
-    given = state.get("clips") if isinstance(state.get("clips"), dict) else {}
+    first = initial_pieces(manifest)
+    sources = {c["id"]: c for c in manifest["clips"]}
     lo, hi = GAIN_RANGE_DB
-    clips = {}
-    for clip in manifest["clips"]:
-        mine = given.get(clip["id"])
-        if not isinstance(mine, dict):
+    given = state.get("pieces")
+    pieces, seen = [], set()
+    for n, mine in enumerate(given[:MAX_PIECES] if isinstance(given, list) else first):
+        clip = sources.get(mine.get("src")) if isinstance(mine, dict) else None
+        if clip is None:
             continue
-        entry = {
-            "start": round(_number(mine.get("start"), 0.1 - clip["duration"],
-                                   manifest["duration"] - 0.1, clip["start"]), 6),
+        a = _number(mine.get("in"), 0.0, clip["duration"] - MIN_PIECE, 0.0)
+        b = _number(mine.get("out"), a + MIN_PIECE, clip["duration"], clip["duration"])
+        if b - a < MIN_PIECE:
+            continue
+        piece_id = "".join(c for c in str(mine.get("id", "")) if c.isalnum() or c in "._-")[:40]
+        if not piece_id or piece_id in seen:
+            piece_id = f"p{n}x{len(seen)}"
+        seen.add(piece_id)
+        pieces.append({
+            "id": piece_id, "src": clip["id"], "in": round(a, 6), "out": round(b, 6),
+            "start": round(_number(mine.get("start"), 0.1 - (b - a), manifest["duration"] - 0.1,
+                                   clip["start"] + a), 6),
             "gain_db": round(_number(mine.get("gain_db"), lo, hi, 0.0), 2),
             "muted": bool(mine.get("muted")), "deleted": bool(mine.get("deleted")),
-        }
-        if (abs(entry["start"] - clip["start"]) > 0.0005 or entry["gain_db"] or entry["muted"]
-                or entry["deleted"]):
-            clips[clip["id"]] = entry
+            "label": _label_for(first, clip["id"], (a + b) / 2, clip["label"]),
+        })
     return {
         "effects_db": round(_number(state.get("effects_db"), lo, hi, 0.0), 2),
         "music_db": round(_number(state.get("music_db"), lo, hi, 0.0), 2),
         "effects_muted": bool(state.get("effects_muted")),
         "music_muted": bool(state.get("music_muted")),
-        "clips": clips,
+        "pieces": pieces,
     }
 
 
-def is_changed(state: dict) -> bool:
-    return bool(state["clips"] or state["effects_db"] or state["music_db"]
-                or state["effects_muted"] or state["music_muted"])
+def _same(a: dict, b: dict) -> bool:
+    return (a["src"] == b["src"] and abs(a["in"] - b["in"]) < 1e-4 and abs(a["out"] - b["out"]) < 1e-4
+            and abs(a["start"] - b["start"]) < 5e-4 and a["gain_db"] == b["gain_db"]
+            and a["muted"] == b["muted"] and a["deleted"] == b["deleted"])
+
+
+def is_changed(state: dict, manifest: dict) -> bool:
+    first = initial_pieces(manifest)
+    return bool(state["effects_db"] or state["music_db"] or state["effects_muted"]
+                or state["music_muted"] or len(first) != len(state["pieces"])
+                or not all(_same(a, b) for a, b in zip(first, state["pieces"])))
 
 
 def load_state(out_dir: Path, manifest: dict) -> dict:
@@ -198,23 +284,40 @@ def save_state(out_dir: Path, state: dict) -> None:
 # --- Making the edited files ----------------------------------------------------------
 
 def effects_track(out_dir: Path, manifest: dict, state: dict) -> np.ndarray:
-    """The effects track with the edit applied (clips moved, turned up or down, removed)."""
+    """The effects track with the edit applied (pieces cut, moved, copied, turned up or
+    down, removed)."""
     sr = C.SAMPLE_RATE
     total = int(round(manifest["duration"] * sr))
     out = np.zeros((total, 2), dtype=np.float32)
     if state["effects_muted"]:
         return out
-    for clip in manifest["clips"]:
-        edit = state["clips"].get(clip["id"], {})
-        if edit.get("deleted") or edit.get("muted"):
+    sources = {c["id"]: c for c in manifest["clips"]}
+    loaded: dict[str, np.ndarray] = {}
+    edge = int(round(EDGE * sr))
+    for piece in state["pieces"]:
+        if piece["deleted"] or piece["muted"]:
             continue
-        audio, _ = read_audio(out_dir / FOLDER / clip["file"])
-        a = int(round(edit.get("start", clip["start"]) * sr))
-        skip = max(0, -a)
-        a, b = max(a, 0), min(total, a + len(audio))
-        if b > a:
-            gain = 10 ** ((edit.get("gain_db", 0.0) + state["effects_db"]) / 20)
-            out[a:b] += audio[skip:skip + b - a] * gain
+        if piece["src"] not in loaded:
+            loaded[piece["src"]] = read_audio(out_dir / FOLDER / sources[piece["src"]]["file"])[0]
+        source = loaded[piece["src"]]
+        a, b = int(round(piece["in"] * sr)), min(len(source), int(round(piece["out"] * sr)))
+        # A cut inside the file gets a short fade that reaches a little past the cut, so
+        # two neighbouring pieces left in place add up to exactly the uncut sound.
+        lead = edge if a > 0 else 0
+        tail = edge if b < len(source) else 0
+        lead, tail = min(lead, a), min(tail, len(source) - b)
+        audio = source[a - lead:b + tail].copy()
+        if lead:
+            audio[:2 * lead] *= np.linspace(0.0, 1.0, 2 * lead, dtype=np.float32)[: len(audio[:2 * lead]), None]
+        if tail:
+            n = min(2 * tail, len(audio))
+            audio[-n:] *= np.linspace(1.0, 0.0, 2 * tail, dtype=np.float32)[-n:, None]
+        at = int(round(piece["start"] * sr)) - lead
+        skip = max(0, -at)
+        at, end = max(at, 0), min(total, at + len(audio))
+        if end > at:
+            gain = 10 ** ((piece["gain_db"] + state["effects_db"]) / 20)
+            out[at:end] += audio[skip:skip + end - at] * gain
     return out
 
 
@@ -267,17 +370,22 @@ def tuning_record(manifest: dict, state: dict, *, job: dict, report: dict | None
     nothing that says who the person is.
     """
     report = report or {}
+    first = {p["id"]: p for p in initial_pieces(manifest)}
+    sources = {c["id"]: c for c in manifest["clips"]}
     clips = []
-    for clip in manifest["clips"]:
-        edit = state["clips"].get(clip["id"], {})
-        start = edit.get("start", clip["start"])
+    for piece in state["pieces"]:
+        clip, was = sources[piece["src"]], first.get(piece["id"])
+        whole = any(p["src"] == piece["src"] and abs(p["in"] - piece["in"]) < 1e-4
+                    and abs(p["out"] - piece["out"]) < 1e-4 for p in first.values())
         clips.append({
-            "id": clip["id"], "kind": clip["kind"], "label": clip["label"],
-            "loudness": clip.get("loudness"), "start": clip["start"],
-            "duration": clip["duration"], "level_db": clip.get("level_db"),
-            "moved_seconds": round(start - clip["start"], 3),
-            "gain_db": edit.get("gain_db", 0.0), "muted": bool(edit.get("muted")),
-            "deleted": bool(edit.get("deleted")),
+            "id": piece["id"], "src": piece["src"], "kind": clip["kind"], "label": piece["label"],
+            # ai = as the AI made it; cut = the person cut it; copy = the person duplicated it
+            "origin": "cut" if not whole else "ai" if was is not None else "copy",
+            "loudness": clip.get("loudness"), "in": piece["in"], "out": piece["out"],
+            "start": round(clip["start"] + piece["in"], 4),
+            "duration": round(piece["out"] - piece["in"], 4), "level_db": clip.get("level_db"),
+            "moved_seconds": round(piece["start"] - (clip["start"] + piece["in"]), 3),
+            "gain_db": piece["gain_db"], "muted": piece["muted"], "deleted": piece["deleted"],
         })
     kept = []
     for event in events[:3000] if isinstance(events, list) else []:
@@ -293,5 +401,6 @@ def tuning_record(manifest: dict, state: dict, *, job: dict, report: dict | None
         "music": (report.get("music") or {}) | {"label": (manifest.get("music") or {}).get("label")},
         "settings": report.get("settings") or C.current(),
         "mix": {k: state[k] for k in ("effects_db", "music_db", "effects_muted", "music_muted")},
-        "clips": clips, "events": kept, "renders": int(renders), "changed": is_changed(state),
+        "clips": clips, "events": kept, "renders": int(renders),
+        "changed": is_changed(state, manifest),
     }
