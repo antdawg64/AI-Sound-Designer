@@ -193,20 +193,34 @@ def gate_to_speech(data: np.ndarray, speech: list[dict], sr: int = C.SAMPLE_RATE
 # --- Clips for the effects model --------------------------------------------
 
 def plan_segments(shots: list[dict], duration: float) -> list[dict]:
-    """Cut shots into pieces the effects model can handle (it works best on short clips)."""
-    segments = []
+    """Cut the video into pieces for the effects model.
+
+    Normally each shot is its own piece (long shots are split). With
+    FOLEY_GROUP_SECONDS above zero, neighbouring short shots are joined into pieces up
+    to that long, so the model sees more of the action at once.
+    """
+    groups: list[list[dict]] = []
+    limit = float(C.FOLEY_GROUP_SECONDS or 0.0)
     for shot in shots:
-        length = shot["end"] - shot["start"]
-        pieces = max(1, int(np.ceil(length / C.FOLEY_MAX_SEGMENT_SECONDS)))
+        if groups and limit > 0 and shot["end"] - groups[-1][0]["start"] <= limit:
+            groups[-1].append(shot)
+        else:
+            groups.append([shot])
+    segments = []
+    for group in groups:
+        g_start, g_end = group[0]["start"], group[-1]["end"]
+        length = g_end - g_start
+        pieces = max(1, int(np.ceil(length / max(C.FOLEY_MAX_SEGMENT_SECONDS, limit))))
         step = length / pieces
         for p in range(pieces):
-            start = shot["start"] + p * step
-            end = shot["start"] + (p + 1) * step
+            start = g_start + p * step
+            end = g_start + (p + 1) * step
             # Extra video on each side gives the crossfade real sound to blend.
             clip_start = max(0.0, start - C.FOLEY_OVERLAP_SECONDS)
             clip_end = min(duration, end + C.FOLEY_OVERLAP_SECONDS)
             segments.append({
-                "index": len(segments), "shot": shot["index"],
+                "index": len(segments), "shot": group[0]["index"],
+                "shots": [s["index"] for s in group],
                 "start": round(start, 3), "end": round(end, 3),
                 "clip_start": round(clip_start, 3), "clip_end": round(clip_end, 3),
             })

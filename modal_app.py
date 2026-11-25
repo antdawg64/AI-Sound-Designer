@@ -44,7 +44,9 @@ ACE_DIR = "/opt/ACE-Step-1.5"
 plan_image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install("anthropic>=2.14", "pydantic>=2", "numpy")
+    .env({"SOUND_SETTINGS": "/root/settings.json"})
     .add_local_python_source("soundlib")
+    .add_local_file(C.SETTINGS_FILE, "/root/settings.json")
 )
 
 foley_image = (
@@ -64,8 +66,9 @@ foley_image = (
     .run_commands(
         f"git clone {FOLEY_REPO} {FOLEY_DIR} && cd {FOLEY_DIR} && git checkout {FOLEY_COMMIT}",
     )
-    .env({"HF_HOME": f"{WEIGHTS}/hf", "PYTHONPATH": FOLEY_DIR})
+    .env({"HF_HOME": f"{WEIGHTS}/hf", "PYTHONPATH": FOLEY_DIR, "SOUND_SETTINGS": "/root/settings.json"})
     .add_local_python_source("soundlib")
+    .add_local_file(C.SETTINGS_FILE, "/root/settings.json")
 )
 
 music_image = (
@@ -89,8 +92,10 @@ music_image = (
         "modelscope", "typer-slim>=0.21.1", "pytorch-wavelets>=1.3.0", "pywavelets>=1.9.0",
         "setuptools<72", "huggingface_hub",
     )
-    .env({"HF_HOME": f"{WEIGHTS}/hf", "PYTHONPATH": ACE_DIR, "ACESTEP_INIT_LLM": "false"})
+    .env({"HF_HOME": f"{WEIGHTS}/hf", "PYTHONPATH": ACE_DIR, "ACESTEP_INIT_LLM": "false",
+          "SOUND_SETTINGS": "/root/settings.json"})
     .add_local_python_source("soundlib")
+    .add_local_file(C.SETTINGS_FILE, "/root/settings.json")
 )
 
 
@@ -119,11 +124,12 @@ def _to_numpy(tensor):
 # --- Sound planning ------------------------------------------------------------
 
 @app.function(image=plan_image, secrets=[modal.Secret.from_name(C.CLAUDE_SECRET_NAME)], timeout=600)
-def plan_sound(frames: list[dict], shots: list[dict], duration: float, speech: list[dict]) -> dict:
+def plan_sound(frames: list[dict], shots: list[dict], duration: float, speech: list[dict],
+               vibe: str | None = None) -> dict:
     """Ask Claude for the sound plan. `frames` items: {shot, time, jpeg}."""
     from soundlib.planning import ask_claude
 
-    return ask_claude(frames, shots, duration, speech)
+    return ask_claude(frames, shots, duration, speech, vibe)
 
 
 # --- One-time preparation (CPU, cheap) -------------------------------------------

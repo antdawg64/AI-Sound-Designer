@@ -1,65 +1,103 @@
-"""Every tunable setting in one place. Phase 2 turns this into a config file."""
+"""Settings. The values live in settings.json at the top of the project; this module
+loads them and exposes each one as an upper-case name (settings "music_lufs" becomes
+C.MUSIC_LUFS), which is how the rest of the code reads them.
 
-SAMPLE_RATE = 48000
+tune.py changes settings for one run with `override(...)` and puts them back with
+`reset()`. `save_defaults(...)` writes new winning values into settings.json.
+"""
 
-# --- Shots ---------------------------------------------------------------
-SHOT_THRESHOLD = 27.0        # PySceneDetect ContentDetector threshold
-MIN_SHOT_SECONDS = 1.0       # shorter shots are merged into a neighbour
+from __future__ import annotations
 
-# --- Key frames sent to Claude --------------------------------------------
-FRAMES_PER_SHOT = 3
-MAX_FRAMES = 24
-FRAME_LONG_SIDE = 768
-PLAN_MODEL = "claude-opus-5-5"
-CLAUDE_SECRET_NAME = "anthropic-secret"   # the Modal secret holding ANTHROPIC_API_KEY
+import json
+import os
+import re
+from pathlib import Path
 
-# --- Effects (HunyuanVideo-Foley) -----------------------------------------
-FOLEY_MAX_SEGMENT_SECONDS = 10.0   # long shots are cut into pieces this long
-FOLEY_MIN_SEGMENT_SECONDS = 1.0
-FOLEY_OVERLAP_SECONDS = 0.3        # extra video each side, used for the crossfade
-FOLEY_CLIP_SHORT_SIDE = 512        # small copy of the shot sent to the GPU
-FOLEY_CLIP_MAX_BYTES = 1_400_000   # keeps each upload inside one Modal message
-FOLEY_STEPS = 50
-FOLEY_GUIDANCE = 4.5
-FOLEY_NEG_PROMPT = "noisy, harsh, music, speech, voice, singing"
-FOLEY_MODEL_SIZE = "xxl"
-SFX_CLIP_RMS_DB = -20.0            # every effects clip is brought to this level first
-SFX_CLIP_MAX_BOOST_DB = 30.0
+_HERE = Path(__file__).resolve().parent
+_CANDIDATES = [Path(os.environ["SOUND_SETTINGS"])] if os.environ.get("SOUND_SETTINGS") else []
+_CANDIDATES += [_HERE.parent / "settings.json", _HERE / "settings.json"]
+SETTINGS_FILE = next((p for p in _CANDIDATES if p.exists()), _CANDIDATES[-2])
 
-# --- Music (ACE-Step 1.5) --------------------------------------------------
-MUSIC_MODEL = "acestep-v15-turbo"
-MUSIC_STEPS = 8
-MUSIC_MIN_SECONDS = 10.0           # the model's shortest supported length
-MUSIC_FADE_OUT_SECONDS = 1.5
-MUSIC_BPM_SEARCH = 0.12            # search +/- 12% around Claude's tempo
-MUSIC_BPM_RANGE = (60, 180)
-MUSIC_EVEN_OUT = 0.6                # 0 = leave the music's slow swells alone, 1 = flatten them
-MUSIC_EVEN_OUT_MAX_DB = 12.0
+_defaults: dict = {}      # setting name -> value, as in settings.json
+_sections: dict = {}      # setting name -> section it lives in
 
-# --- Mix -------------------------------------------------------------------
-TARGET_LUFS = -14.0
-TARGET_TRUE_PEAK_DB = -1.0
-ENCODE_PEAK_MARGIN_DB = 0.8        # AAC encoding can raise peaks slightly
-VOICE_LUFS = -16.0
-SFX_LUFS = -21.0                   # effects sit under the voice
-MUSIC_LUFS = -27.0                 # music sits well behind the effects (Anthony: was too loud)
-MUSIC_LUFS_NO_VOICE = -26.0        # 8 dB under the effects when nobody speaks
-SFX_LUFS_NO_VOICE = -18.0
-LOUDNESS_DB = {"quiet": -6.0, "medium": 0.0, "loud": 4.0}
-DUCK = "threshold=0.02:ratio=6:attack=15:release=450:makeup=1"
-AAC_BITRATE = "256k"
 
-# --- Seeds -----------------------------------------------------------------
-SEED = 1
+def _load() -> None:
+    if not SETTINGS_FILE.exists():
+        raise FileNotFoundError(f"settings.json not found (looked in {SETTINGS_FILE})")
+    raw = json.loads(SETTINGS_FILE.read_text())
+    _defaults.clear()
+    _sections.clear()
+    for section, values in raw.items():
+        if section.startswith("_") or not isinstance(values, dict):
+            continue
+        for key, value in values.items():
+            if key.startswith("_"):
+                continue
+            _defaults[key] = value
+            _sections[key] = section
+    reset()
 
-# --- Cost (US dollars per second; Modal list prices, re-check on modal.com/pricing)
-GPU_TYPE = "L40S"
-GPU_DOLLARS_PER_SECOND = {"L40S": 0.000542, "A100": 0.000583, "A100-80GB": 0.000694}
-# Claude Opus 5.5 list price per million tokens.
-CLAUDE_DOLLARS_PER_MTOK = {"input": 4.00, "output": 20.00}
 
-# --- Automatic checks ------------------------------------------------------
-CHECK_DURATION_TOLERANCE = 0.1
-CHECK_LUFS_TOLERANCE = 1.0
-CHECK_MAX_TRUE_PEAK_DB = -0.1      # anything at or above 0 dBTP would be clipping
-CHECK_SILENT_LUFS = -50.0
+def reset() -> None:
+    """Put every setting back to what settings.json says."""
+    for key, value in _defaults.items():
+        globals()[key.upper()] = json.loads(json.dumps(value))
+
+
+def names() -> list[str]:
+    return sorted(_defaults)
+
+
+def get(name: str):
+    return globals()[_check(name).upper()]
+
+
+def default(name: str):
+    return _defaults[_check(name)]
+
+
+def section(name: str) -> str:
+    return _sections[_check(name)]
+
+
+def _check(name: str) -> str:
+    name = name.lower()
+    if name not in _defaults:
+        raise KeyError(f"Unknown setting '{name}'. Known settings: {', '.join(names())}")
+    return name
+
+
+def override(changes: dict) -> None:
+    """Change settings for this process only (settings.json is not touched)."""
+    for name, value in changes.items():
+        globals()[_check(name).upper()] = value
+
+
+def current() -> dict:
+    """Every setting with its value right now."""
+    return {name: globals()[name.upper()] for name in names()}
+
+
+def save_defaults(changes: dict) -> None:
+    """Write new default values into settings.json, keeping its layout and notes."""
+    text = SETTINGS_FILE.read_text()
+    for name, value in changes.items():
+        name = _check(name)
+        if isinstance(value, (dict, list)) and not _is_flat(value):
+            raise ValueError(f"'{name}' is too complex to rewrite automatically")
+        pattern = re.compile(r'("' + re.escape(name) + r'"\s*:\s*)(\[[^\]]*\]|\{[^}]*\}|"(?:[^"\\]|\\.)*"|[^,\n]+)')
+        text, count = pattern.subn(lambda m: m.group(1) + json.dumps(value), text, count=1)
+        if count != 1:
+            raise ValueError(f"Could not find '{name}' in {SETTINGS_FILE}")
+    json.loads(text)  # refuse to write a broken file
+    SETTINGS_FILE.write_text(text)
+    _load()
+
+
+def _is_flat(value) -> bool:
+    items = value.values() if isinstance(value, dict) else value
+    return all(not isinstance(v, (dict, list)) for v in items)
+
+
+_load()

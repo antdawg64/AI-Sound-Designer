@@ -1,0 +1,265 @@
+<title>Sound Tuning Room</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: a mixing-desk feel. One quiet header with progress, then one band per video;
+   each band is a row of tall "channel strips" (portrait player on top, rating below). */
+:root {
+  --bg: #f3f4f1; --surface: #ffffff; --ink: #171b1a; --muted: #5d6763; --line: #d9ddd8;
+  --accent: #0c7a6b; --accent-ink: #ffffff; --chip: #e7ebe7; --warn: #a4490b; --ok: #0c7a6b;
+  --display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #101413; --surface: #19201e; --ink: #ecf0ed; --muted: #9aa6a1; --line: #2b3532;
+  --accent: #4fd1bd; --accent-ink: #06211d; --chip: #232c29; --warn: #f2a65a; --ok: #4fd1bd;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #101413; --surface: #19201e; --ink: #ecf0ed; --muted: #9aa6a1; --line: #2b3532;
+  --accent: #4fd1bd; --accent-ink: #06211d; --chip: #232c29; --warn: #f2a65a; --ok: #4fd1bd;
+  color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 28px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 28px; }
+h1 { font: 600 28px/1.15 var(--display); margin: 0; text-wrap: balance; }
+h2 { font: 600 19px/1.2 var(--display); margin: 0; text-wrap: balance; overflow-wrap: anywhere; }
+h3 { font: 600 15px/1.25 var(--display); margin: 0; }
+p { margin: 0; }
+.intro { display: flex; flex-direction: column; gap: 10px; max-width: 65ch; }
+.intro p { color: var(--muted); }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg);
+  border-bottom: 1px solid var(--line); padding-block: 10px; display: flex; flex-wrap: wrap;
+  gap: 8px 18px; align-items: center; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.count { font: 600 15px var(--display); font-variant-numeric: tabular-nums; }
+.status { color: var(--muted); font-size: 13px; min-width: 0; }
+.status.bad { color: var(--warn); }
+.status.good { color: var(--ok); }
+.bar label { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+.spacer { flex: 1 1 0; }
+button { font: inherit; color: inherit; cursor: pointer; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 6px 12px; font-size: 13px; }
+.btn:hover { border-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.video { display: flex; flex-direction: column; gap: 14px; }
+.group-label { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.group { display: flex; flex-direction: column; gap: 10px; }
+.group > p { color: var(--muted); max-width: 65ch; }
+.strips { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; align-items: start; }
+.strip { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  display: flex; flex-direction: column; min-width: 0; }
+.strip.playing { border-color: var(--accent); }
+.strip video { width: 100%; aspect-ratio: var(--ar, 9 / 16); background: #000; display: block; max-width: 100%; }
+.body { padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.why { color: var(--muted); font-size: 13px; }
+.chip { align-self: flex-start; background: var(--chip); border-radius: 4px; padding: 2px 7px; font-size: 12px;
+  color: var(--muted); overflow-wrap: anywhere; }
+.stars { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.stars button { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 7px 0;
+  font: 600 15px var(--display); font-variant-numeric: tabular-nums; }
+.stars button:hover { border-color: var(--accent); }
+.stars button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+.note { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 6px; background: transparent;
+  color: inherit; font: inherit; font-size: 13px; padding: 6px 8px; }
+.export { display: flex; flex-direction: column; gap: 8px; }
+.export textarea { width: 100%; box-sizing: border-box; min-height: 140px; font: 12px/1.4 ui-monospace, Menlo, monospace;
+  background: var(--surface); color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+@media (max-width: 460px) { .strips { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } .body { padding: 9px; } h1 { font-size: 23px; } }
+@media (prefers-reduced-motion: no-preference) { .strip { transition: border-color .15s; } }
+</style>
+
+<div class="wrap">
+  <header class="intro">
+    <h1>Sound Tuning Room</h1>
+    <p>Every tile is the same video with one thing about the sound changed. Play each one, then tap a score from 1 (bad) to 5 (great). Score the first tile too: it is the yardstick the others are compared with. Use headphones if you can.</p>
+  </header>
+
+  <div class="bar">
+    <span class="count" id="count">0 of 0 rated</span>
+    <span class="status" id="status">Loading your ratings…</span>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="sync" checked> Switching tiles keeps your place in the video</label>
+    <button class="btn" id="show-export" type="button">Show ratings as text</button>
+  </div>
+
+  <main id="videos" style="display:flex;flex-direction:column;gap:36px"></main>
+
+  <section class="export" id="export" hidden>
+    <h3>Your ratings as text</h3>
+    <p class="why">This is the same thing that gets saved to ratings.csv. If saving ever fails, copy this and paste it to Claude.</p>
+    <textarea id="csv" readonly></textarea>
+    <div><button class="btn" id="copy" type="button">Copy</button> <span class="status" id="copied"></span></div>
+  </section>
+</div>
+
+<script type="application/json" id="data">/*DATA*/</script>
+<script>
+(function () {
+  var DATA = JSON.parse(document.getElementById("data").textContent);
+  var ratings = {};            // key -> {rating, note}
+  var saver = null;            // function(key) that stores one rating, set once a store is found
+  var statusEl = document.getElementById("status");
+  var LOCAL_KEY = "sound-tuning-ratings:" + DATA.run;
+
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function setStatus(text, kind) { statusEl.textContent = text; statusEl.className = "status" + (kind ? " " + kind : ""); }
+  function allItems() { var out = []; DATA.videos.forEach(function (v) { v.groups.forEach(function (g) { g.items.forEach(function (it) { out.push({ video: v, group: g, item: it }); }); }); }); return out; }
+
+  // ---- build the page -------------------------------------------------------
+  var players = [];
+  var root = document.getElementById("videos");
+  DATA.videos.forEach(function (v) {
+    var sec = el("section", "video");
+    sec.appendChild(el("h2", null, v.title));
+    v.groups.forEach(function (g) {
+      var box = el("div", "group");
+      box.appendChild(el("div", "group-label", g.title));
+      if (g.about) box.appendChild(el("p", null, g.about));
+      var strips = el("div", "strips");
+      g.items.forEach(function (it) {
+        var strip = el("article", "strip");
+        var vid = document.createElement("video");
+        vid.controls = true; vid.preload = "metadata"; vid.playsInline = true; vid.src = it.file;
+        if (v.aspect) strip.style.setProperty("--ar", v.aspect);
+        vid.addEventListener("play", function () {
+          var sync = document.getElementById("sync").checked;
+          players.forEach(function (p) {
+            if (p === vid) return;
+            if (!p.paused) { if (sync && p.dataset.video === vid.dataset.video) { try { vid.currentTime = p.currentTime; } catch (e) {} } p.pause(); }
+            p.closest(".strip").classList.remove("playing");
+          });
+          strip.classList.add("playing");
+        });
+        vid.dataset.video = v.id;
+        players.push(vid);
+        strip.appendChild(vid);
+        var body = el("div", "body");
+        body.appendChild(el("h3", null, it.label));
+        body.appendChild(el("p", "why", it.why));
+        if (it.change) body.appendChild(el("span", "chip", it.change));
+        var stars = el("div", "stars"); stars.setAttribute("role", "group"); stars.setAttribute("aria-label", "Score for " + it.label);
+        for (var n = 1; n <= 5; n++) (function (n) {
+          var b = el("button", null, String(n)); b.type = "button"; b.id = "r-" + it.key + "-" + n;
+          b.setAttribute("aria-pressed", "false");
+          b.addEventListener("click", function () { rate(it.key, n); });
+          stars.appendChild(b);
+        })(n);
+        body.appendChild(stars);
+        var scale = el("div", "scale"); scale.appendChild(el("span", null, "bad")); scale.appendChild(el("span", null, "great"));
+        body.appendChild(scale);
+        var note = el("input", "note"); note.type = "text"; note.id = "n-" + it.key; note.placeholder = "Note (optional)";
+        note.setAttribute("aria-label", "Note for " + it.label);
+        note.addEventListener("change", function () { var r = ratings[it.key] || (ratings[it.key] = { rating: null, note: "" }); r.note = note.value; changed(it.key); });
+        body.appendChild(note);
+        strip.appendChild(body);
+        strips.appendChild(strip);
+      });
+      box.appendChild(strips);
+      sec.appendChild(box);
+    });
+    root.appendChild(sec);
+  });
+
+  // ---- ratings ----------------------------------------------------------------
+  function paint() {
+    var items = allItems(), done = 0;
+    items.forEach(function (x) {
+      var r = ratings[x.item.key] || {};
+      if (r.rating) done++;
+      for (var n = 1; n <= 5; n++) document.getElementById("r-" + x.item.key + "-" + n).setAttribute("aria-pressed", String(r.rating === n));
+      var note = document.getElementById("n-" + x.item.key);
+      if (document.activeElement !== note) note.value = r.note || "";
+    });
+    document.getElementById("count").textContent = done + " of " + items.length + " rated";
+    document.getElementById("csv").value = toCsv();
+    return done === items.length;
+  }
+  function rate(key, n) {
+    var r = ratings[key] || (ratings[key] = { rating: null, note: "" });
+    r.rating = r.rating === n ? null : n;
+    changed(key);
+  }
+  function changed(key) {
+    ratings[key].at = new Date().toISOString();
+    try { localStorage.setItem(LOCAL_KEY, JSON.stringify(ratings)); } catch (e) {}
+    var all = paint();
+    if (!saver) { setStatus("Kept in this browser only. Use “Show ratings as text” to pass them on.", "bad"); return; }
+    setStatus("Saving…");
+    saver(key).then(function () {
+      setStatus(all ? "All rated and saved. Tell Claude you are done." : "Saved.", "good");
+    }).catch(function () { setStatus("Could not save. Your ratings are kept in this browser; use “Show ratings as text”.", "bad"); });
+  }
+  function csvCell(s) { s = String(s == null ? "" : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+  function toCsv() {
+    var rows = [["video", "variant", "setting", "value", "rating", "note", "rated_at"]];
+    allItems().forEach(function (x) {
+      var r = ratings[x.item.key] || {};
+      if (!r.rating && !r.note) return;
+      rows.push([x.video.id, x.item.id, x.item.setting || "", x.item.value == null ? "" : JSON.stringify(x.item.value), r.rating || "", r.note || "", r.at || ""]);
+    });
+    return rows.map(function (r) { return r.map(csvCell).join(","); }).join("\n") + "\n";
+  }
+  function merge(incoming) {
+    Object.keys(incoming || {}).forEach(function (k) {
+      var a = ratings[k], b = incoming[k];
+      if (!b) return;
+      if (!a || String(b.at || "") >= String(a.at || "")) ratings[k] = { rating: b.rating || null, note: b.note || "", at: b.at || "" };
+    });
+  }
+
+  // ---- where ratings are stored -------------------------------------------------
+  try { merge(JSON.parse(localStorage.getItem(LOCAL_KEY) || "{}")); } catch (e) {}
+  paint();
+
+  function useServer() {   // "python tune.py --serve": ratings go straight into ratings.csv
+    return fetch("api/ratings", { cache: "no-store" }).then(function (res) {
+      if (!res.ok || (res.headers.get("content-type") || "").indexOf("json") < 0) throw new Error("no server");
+      return res.json();
+    }).then(function (stored) {
+      merge(stored);
+      saver = function () {
+        return fetch("api/ratings", { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ csv: toCsv() }) }).then(function (r) { if (!r.ok) throw new Error("save failed"); });
+      };
+      setStatus("Ratings save to ratings.csv as you go.", "good");
+    });
+  }
+  function useCloud() {    // the shared page: ratings go to the page's own store, which Claude reads
+    if (!(window.claude && window.claude.use)) return Promise.reject(new Error("no store"));
+    return window.claude.use("db").then(function (db) {
+      if (!db) throw new Error("no store");
+      var col = db.collection("ratings");
+      return col.get().then(function (snap) {
+        var stored = {};
+        snap.docs.forEach(function (d) { var x = d.data() || {}; if (x.run === DATA.run) stored[d.id] = x; });
+        merge(stored);
+        saver = function (key) {
+          var x = allItems().filter(function (i) { return i.item.key === key; })[0], r = ratings[key];
+          return col.doc(key).set({ run: DATA.run, video: x.video.id, variant: x.item.id, setting: x.item.setting || "",
+            value: x.item.value == null ? "" : JSON.stringify(x.item.value), rating: r.rating || null, note: r.note || "", at: r.at || "" });
+        };
+        setStatus("Ratings save automatically as you go.", "good");
+      });
+    });
+  }
+  var slow = setTimeout(function () { if (!saver) setStatus("Still connecting. You can start rating; nothing will be lost.", ""); }, 10000);
+  useServer().catch(useCloud).catch(function () {
+    setStatus("Ratings are kept in this browser. Use “Show ratings as text” to pass them on.", "");
+  }).then(function () { clearTimeout(slow); paint(); });
+
+  // ---- text export ---------------------------------------------------------------
+  document.getElementById("show-export").addEventListener("click", function () {
+    var box = document.getElementById("export"); box.hidden = !box.hidden;
+    this.textContent = box.hidden ? "Show ratings as text" : "Hide ratings text";
+    if (!box.hidden) box.scrollIntoView({ block: "nearest" });
+  });
+  document.getElementById("copy").addEventListener("click", function () {
+    var area = document.getElementById("csv"), done = document.getElementById("copied");
+    var fallback = function () { area.focus(); area.select(); done.textContent = "Selected. Press Ctrl+C or Cmd+C."; };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(area.value).then(function () { done.textContent = "Copied."; }, fallback);
+    else fallback();
+  });
+})();
+</script>

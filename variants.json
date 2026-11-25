@@ -1,0 +1,50 @@
+{
+  "_about": "What 'python tune.py' tries. Each variant changes ONE setting from settings.json. 'videos' empty means every video in test_videos/. 'vibes' can give a video a music feeling, e.g. {\"my_video\": \"suspenseful\"}.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": true,
+  "variants": [
+    {
+      "id": "music_further_back",
+      "label": "Music further back",
+      "setting": "music_lufs_no_voice",
+      "value": -30.0,
+      "why": "Music 4 dB quieter again, so the effects carry the scene."
+    },
+    {
+      "id": "music_can_build",
+      "label": "Music allowed to build",
+      "setting": "music_even_out",
+      "value": 0.0,
+      "why": "Stops flattening the music's swells, so suspense can start quiet and grow."
+    },
+    {
+      "id": "music_sparse",
+      "label": "Sparser music",
+      "setting": "music_prompt_template",
+      "value": "{genre}, {mood}, sparse minimal underscore, {instruments}, slow build, lots of space, no vocals",
+      "why": "Asks the music model for a thin underscore instead of a full background track."
+    },
+    {
+      "id": "effects_main_sound",
+      "label": "One clear effect per shot",
+      "setting": "sfx_prompt_style",
+      "value": "main",
+      "why": "Tells the effects model only the most important sound in each shot, not the whole list."
+    },
+    {
+      "id": "effects_follow_words",
+      "label": "Effects follow the description harder",
+      "setting": "foley_guidance",
+      "value": 6.5,
+      "why": "Pushes the effects model to stick closer to the planned sounds (4.5 to 6.5)."
+    },
+    {
+      "id": "effects_longer_clips",
+      "label": "Effects made over longer stretches",
+      "setting": "foley_group_seconds",
+      "value": 8.0,
+      "why": "Joins quick shots into clips of up to 8 seconds, so effects flow across cuts instead of restarting."
+    }
+  ]
+}

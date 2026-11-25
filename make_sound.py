@@ -9,6 +9,11 @@ outputs/<video name>/, then checks the result automatically.
 Other ways to run it:
     python make_sound.py --all          every video in test_videos/
     python make_sound.py --deploy       (re)install the cloud side on Modal
+    python make_sound.py video.mp4 --versions
+        Three different takes (different seeds and music) to pick from, in
+        outputs/<video name>/take_1, take_2, take_3.
+    python make_sound.py video.mp4 --vibe suspenseful
+        Tell the music what feeling to go for.
     python make_sound.py video.mp4 --dry-run
         Test tones instead of AI sound. No Modal, no cost. Only for testing the
         plumbing: the result is NOT a real sound design.
@@ -17,6 +22,7 @@ Other ways to run it:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import shutil
@@ -76,10 +82,11 @@ class Cloud:
     def connect(self) -> None:
         self.plan_fn, self.foley, self.music = self._lookup()
 
-    def plan(self, frames: list[dict], shots: list[dict], duration: float, speech: list[dict]) -> dict:
+    def plan(self, frames: list[dict], shots: list[dict], duration: float, speech: list[dict],
+             vibe: str | None = None) -> dict:
         payload = [{"shot": f["shot"], "time": f["time"], "jpeg": Path(f["path"]).read_bytes()}
                    for f in frames]
-        result = self.plan_fn.remote(payload, shots, duration, speech)
+        result = self.plan_fn.remote(payload, shots, duration, speech, vibe)
         self.claude = result["usage"]
         return result["plan"]
 
@@ -102,12 +109,15 @@ class Cloud:
 
     def effects(self, clip: Path, prompt: str, seg: dict) -> tuple[np.ndarray, int]:
         return self._collect(
-            self.foley.generate.remote_gen(clip.read_bytes(), prompt, seed=C.SEED + seg["index"]),
+            self.foley.generate.remote_gen(
+                clip.read_bytes(), prompt, seed=C.SEED + seg["index"], steps=C.FOLEY_STEPS,
+                guidance=C.FOLEY_GUIDANCE, neg_prompt=C.FOLEY_NEG_PROMPT),
             f"effects segment {seg['index']}")
 
     def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
-        return self._collect(self.music.generate.remote_gen(caption, bpm, seconds, seed=C.SEED),
-                             "music")
+        return self._collect(
+            self.music.generate.remote_gen(caption, bpm, seconds, seed=C.SEED, steps=C.MUSIC_STEPS),
+            "music")
 
 
 # --- Test-tone backend (no AI, no cost) ------------------------------------------
@@ -121,20 +131,20 @@ class TestTones:
     def connect(self) -> None:
         pass
 
-    def plan(self, frames, shots, duration, speech) -> dict:
+    def plan(self, frames, shots, duration, speech, vibe=None) -> dict:
         return {
             "summary": "TEST PLAN (no AI was used)",
             "shots": [{"shot": s["index"], "effects": [
                 {"start": s["start"], "end": s["end"], "description": "test noise",
                  "loudness": ("quiet", "medium", "loud")[s["index"] % 3]}]} for s in shots],
-            "music": {"mood": "test", "genre": "test tone", "tempo_bpm": 110,
+            "music": {"mood": vibe or "test", "genre": "test tone", "tempo_bpm": 110,
                       "instruments": ["sine wave"], "cut_times": []},
         }
 
     def effects(self, clip: Path, prompt: str, seg: dict) -> tuple[np.ndarray, int]:
         sr = C.SAMPLE_RATE
         n = int((seg["clip_end"] - seg["clip_start"]) * sr)
-        rng = np.random.default_rng(seg["index"])
+        rng = np.random.default_rng(C.SEED + seg["index"])
         noise = rng.standard_normal(n).astype(np.float32)
         noise = np.convolve(noise, np.ones(24, dtype=np.float32) / 24, mode="same")
         swell = 0.6 + 0.4 * np.sin(np.linspace(0, 6 * np.pi, n, dtype=np.float32))
@@ -143,14 +153,90 @@ class TestTones:
     def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
         sr = C.SAMPLE_RATE
         t = np.arange(int(seconds * sr), dtype=np.float32) / sr
-        chord = sum(np.sin(2 * np.pi * f * t) for f in (220.0, 277.18, 329.63)) / 3
+        root = 220.0 * 2 ** ((C.SEED + len(caption)) % 12 / 12)
+        chord = sum(np.sin(2 * np.pi * root * f * t) for f in (1.0, 1.26, 1.5)) / 3
         beat = 0.5 + 0.5 * (np.modf(t * bpm / 60.0)[0] < 0.25)
         return (0.3 * chord * beat).astype(np.float32)[:, None], sr
 
 
+# --- Remembering results -----------------------------------------------------------
+
+class Cached:
+    """Wraps a backend and keeps every plan, effects clip and music track on disk.
+
+    Asking again for exactly the same thing (same clip, words, seed and model
+    settings) costs nothing. That is what makes tuning cheap: a variant that only
+    changes the mix reuses all the generated sound, and one that only changes the
+    music reuses all the effects.
+    """
+
+    def __init__(self, backend, folder: Path) -> None:
+        self.backend, self.folder = backend, Path(folder)
+        self.folder.mkdir(parents=True, exist_ok=True)
+        self.kind = "tones" if isinstance(backend, TestTones) else "ai"
+        self.hits = 0
+        self.connected = False
+
+    gpu_calls = property(lambda self: self.backend.gpu_calls,
+                         lambda self, v: setattr(self.backend, "gpu_calls", v))
+    claude = property(lambda self: self.backend.claude)
+
+    def connect(self) -> None:
+        pass  # connects lazily (see _connect): a fully cached run never touches Modal
+
+    def _connect(self) -> None:
+        if not self.connected:
+            self.backend.connect()
+            self.connected = True
+
+    def _key(self, *parts) -> str:
+        h = hashlib.sha256(self.kind.encode())
+        for part in parts:
+            h.update(b"|")
+            h.update(part if isinstance(part, bytes) else json.dumps(part, sort_keys=True).encode())
+        return h.hexdigest()[:24]
+
+    def _audio(self, key: str, make) -> tuple[np.ndarray, int]:
+        import soundfile as sf
+
+        path = self.folder / f"{key}.flac"
+        if path.exists():
+            self.hits += 1
+            return sf.read(path, dtype="float32", always_2d=True)
+        self._connect()
+        data, sr = make()
+        sf.write(path, data, sr, format="FLAC", subtype="PCM_24")
+        return data, sr
+
+    def plan(self, frames, shots, duration, speech, vibe=None) -> dict:
+        jpegs = b"".join(Path(f["path"]).read_bytes() for f in frames)
+        key = self._key("plan", hashlib.sha256(jpegs).hexdigest(), shots, speech, vibe or "",
+                        C.PLAN_MODEL, hashlib.sha256(planning.SYSTEM.encode()).hexdigest())
+        path = self.folder / f"{key}.plan.json"
+        if path.exists():
+            self.hits += 1
+            self.backend.claude = {}
+            return json.loads(path.read_text())
+        self._connect()
+        plan = self.backend.plan(frames, shots, duration, speech, vibe)
+        path.write_text(json.dumps(plan, indent=2))
+        return plan
+
+    def effects(self, clip: Path, prompt: str, seg: dict) -> tuple[np.ndarray, int]:
+        key = self._key("fx", hashlib.sha256(clip.read_bytes()).hexdigest(), prompt,
+                        C.SEED + seg["index"], C.FOLEY_STEPS, C.FOLEY_GUIDANCE,
+                        C.FOLEY_NEG_PROMPT, C.FOLEY_MODEL_SIZE)
+        return self._audio(key, lambda: self.backend.effects(clip, prompt, seg))
+
+    def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
+        key = self._key("music", caption, bpm, seconds, C.SEED, C.MUSIC_STEPS, C.MUSIC_MODEL)
+        return self._audio(key, lambda: self.backend.compose(caption, bpm, seconds))
+
+
 # --- The pipeline -----------------------------------------------------------------
 
-def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False) -> dict:
+def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
+               vibe: str | None = None, music_flavour: str = "") -> dict:
     started = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="make_sound_"))
@@ -176,7 +262,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False) -> 
         say("2/6 Planning the sound with Claude")
         backend.connect()
         frames = media.extract_keyframes(video, shots, work / "frames")
-        plan = planning.clean_plan(backend.plan(frames, shots, duration, speech), shots, duration)
+        plan = planning.clean_plan(backend.plan(frames, shots, duration, speech, vibe), shots, duration)
         say(f"    {plan['summary']}")
 
         say("3/6 Generating sound effects")
@@ -193,7 +279,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False) -> 
         say("4/6 Composing the music")
         music_plan = plan["music"]
         bpm, miss = planning.pick_tempo(music_plan["tempo_bpm"], music_plan["cut_times"])
-        caption = planning.music_caption(music_plan)
+        caption = planning.music_caption(music_plan, music_flavour)
         say(f"    {caption} at {bpm} BPM")
         raw, sr = backend.compose(caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1))
         music = mixing.shape_music(raw, sr, duration)
@@ -215,7 +301,8 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False) -> 
                           for c in backend.gpu_calls)
         report = {
             "video": str(video), "output_dir": str(out_dir), "duration": duration,
-            "test_tones_only": isinstance(backend, TestTones),
+            "test_tones_only": isinstance(getattr(backend, "backend", backend), TestTones),
+            "vibe": vibe, "music_flavour": music_flavour, "settings": C.current(),
             "passed": result["passed"], "checks": result["checks"],
             "shots": shots, "speech": speech,
             "segments": [{k: v for k, v in s.items() if k != "audio"} for s in segments],
@@ -240,6 +327,27 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False) -> 
             shutil.rmtree(work, ignore_errors=True)
 
 
+def make_versions(video: Path, out_dir: Path, backend, vibe: str | None = None) -> list[dict]:
+    """Several different takes of the same video, so someone can pick a favourite.
+
+    Each take (see "version_takes" in settings.json) uses its own seed and its own
+    twist on the music. The sound plan is made once and shared.
+    """
+    backend = backend if isinstance(backend, Cached) else Cached(backend, ROOT / "cache")
+    base_seed, reports = C.SEED, []
+    try:
+        for n, take in enumerate(C.VERSION_TAKES, start=1):
+            C.override({"seed": base_seed + int(take.get("seed_offset", 0))})
+            say(f"\n--- {take.get('name', f'Take {n}')} ---")
+            report = make_sound(video, out_dir / f"take_{n}", backend, vibe=vibe,
+                                music_flavour=take.get("music_flavour", ""))
+            report["take"] = take.get("name", f"Take {n}")
+            reports.append(report)
+    finally:
+        C.override({"seed": base_seed})
+    return reports
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Add AI sound effects and music to a video.")
     parser.add_argument("video", nargs="?", help="path to a video file")
@@ -249,6 +357,9 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="test tones instead of AI sound (free, for testing only)")
     parser.add_argument("--keep-work", action="store_true", help="keep temporary files")
+    parser.add_argument("--versions", action="store_true",
+                        help="make three different takes to pick from")
+    parser.add_argument("--vibe", help="the feeling the music should go for, e.g. suspenseful")
     args = parser.parse_args()
 
     backend = TestTones() if args.dry_run else Cloud()
@@ -274,13 +385,18 @@ def main() -> int:
     for video in videos:
         out_dir = Path(args.out) if args.out and len(videos) == 1 else ROOT / "outputs" / video.stem
         try:
-            reports.append(make_sound(video, out_dir, backend, keep_work=args.keep_work))
-            if not reports[-1]["passed"]:
+            if args.versions:
+                made = make_versions(video, out_dir, backend, vibe=args.vibe)
+            else:
+                made = [make_sound(video, out_dir, backend, keep_work=args.keep_work,
+                                   vibe=args.vibe)]
+            reports.extend(made)
+            if not all(r["passed"] for r in made):
                 failed.append(video.name)
         except Exception as exc:  # keep going so one bad video doesn't hide the others
             say(f"ERROR on {video.name}: {exc}")
             failed.append(video.name)
-    if len(videos) > 1:
+    if len(reports) > 1:
         say("\n=== Summary ===")
         for r in reports:
             say(f"{'PASS' if r['passed'] else 'FAIL'}  {Path(r['video']).name}: "

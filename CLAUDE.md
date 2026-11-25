@@ -70,4 +70,7 @@ Only start a phase when Anthony asks for it.
 - Setup: `bash scripts/setup.sh` installs the Python packages.
 - Run: `python make_sound.py video.mp4` (or `--all` for everything in `test_videos/`).
   Results go to `outputs/<video name>/`. `--dry-run` uses test tones and no Modal.
-  `--deploy` installs `modal_app.py` on Modal. Settings live in `soundlib/config.py`.
+  `--deploy` installs `modal_app.py` on Modal. Settings live in `settings.json`.
+- Tune: `python tune.py` runs the variants in `variants.json` and builds the rating page in
+  `tuning/`; `--serve` opens it with saving to `ratings.csv`; `--apply` makes the winners
+  the new defaults. `python make_sound.py video.mp4 --versions` makes three takes.
