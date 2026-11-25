@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Sound Designer</title>
+<meta name="description" content="Upload a short video and get it back with sound effects synced to the action and original music.">
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --ink: #1b1b1f; --muted: #66656d; --line: #e2e0da;
+    --accent: #3b5bdb; --accent-ink: #ffffff; --soft: #eef1fd; --bad: #c92a2a; --bad-soft: #fff0f0;
+    --good: #2b8a3e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121215; --card: #1c1c21; --ink: #ececf1; --muted: #a09fa8; --line: #2e2e35;
+      --accent: #748ffc; --accent-ink: #0d0d10; --soft: #232842; --bad: #ff8787; --bad-soft: #3a1d1f;
+      --good: #69db7c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .lead { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  .drop { display: block; border: 2px dashed var(--line); border-radius: 12px; padding: 28px 16px;
+          text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--soft); }
+  .drop strong { display: block; font-size: 17px; }
+  .drop span { color: var(--muted); font-size: 14px; }
+  .drop.has-file strong { color: var(--accent); word-break: break-all; }
+  input[type=file] { display: none; }
+  label.field { display: block; margin-top: 18px; font-weight: 600; font-size: 15px; }
+  label.field small { font-weight: 400; color: var(--muted); }
+  select, input[type=text] { width: 100%; margin-top: 6px; padding: 10px 12px; font: inherit;
+          color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+  .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; font-size: 14px; color: var(--muted); }
+  .check input { margin-top: 4px; width: 18px; height: 18px; flex: none; }
+  button, .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+          margin-top: 20px; padding: 12px 20px; font: 600 16px/1 inherit; font-family: inherit;
+          border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-ink);
+          cursor: pointer; text-decoration: none; }
+  button[disabled] { opacity: .45; cursor: not-allowed; }
+  .wide { width: 100%; }
+  .secondary { background: var(--soft); color: var(--ink); }
+  .notice { margin-top: 16px; padding: 12px 14px; border-radius: 10px; font-size: 14px; }
+  .notice.bad { background: var(--bad-soft); color: var(--bad); }
+  .notice.info { background: var(--soft); }
+  .bar { height: 10px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 14px 0 8px; }
+  .bar div { height: 100%; width: 0; background: var(--accent); transition: width .6s ease; }
+  .steps { list-style: none; padding: 0; margin: 16px 0 0; font-size: 15px; }
+  .steps li { padding: 4px 0; color: var(--muted); }
+  .steps li.now { color: var(--ink); font-weight: 600; }
+  .steps li.done { color: var(--good); }
+  .steps li::before { content: "○"; display: inline-block; width: 22px; }
+  .steps li.now::before { content: "●"; color: var(--accent); }
+  .steps li.done::before { content: "✓"; }
+  video { width: 100%; border-radius: 10px; background: #000; margin-top: 4px; }
+  .downloads { display: grid; gap: 10px; margin-top: 8px; }
+  .downloads .button { margin-top: 0; width: 100%; }
+  .muted { color: var(--muted); font-size: 14px; }
+  footer { margin-top: 28px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  footer a { color: inherit; }
+  .hidden { display: none !important; }
+  h2 { font-size: 20px; margin: 0 0 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AI Sound Designer</h1>
+  <p class="lead">Upload a short video. You'll get it back with sound effects that follow the action and original background music, plus the music and the effects as separate files.</p>
+
+  <!-- Upload -->
+  <section id="upload" class="card hidden">
+    <form id="form">
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept="video/*,.mp4,.mov,.m4v,.mkv,.webm">
+        <strong id="drop-title">Choose a video</strong>
+        <span id="drop-hint">or drag it here</span>
+      </label>
+
+      <label class="field" for="vibe">Feeling for the music <small>(optional)</small>
+        <input type="text" id="vibe" maxlength="120" placeholder="for example: tense, playful, epic, calm">
+      </label>
+
+      <label class="field" for="country">Where are you right now?
+        <select id="country" required><option value="">Choose your country</option></select>
+      </label>
+
+      <label class="check"><input type="checkbox" id="agree">
+        <span>I'm not in the European Union, the United Kingdom or South Korea, and I won't use the result there. (The sound effects model isn't licensed in those places.)</span>
+      </label>
+
+      <div id="form-error" class="notice bad hidden"></div>
+      <button class="wide" id="go" type="submit" disabled>Add sound</button>
+      <p class="muted" id="limits"></p>
+    </form>
+  </section>
+
+  <!-- Uploading -->
+  <section id="sending" class="card hidden">
+    <h2>Uploading your video</h2>
+    <div class="bar"><div id="send-bar"></div></div>
+    <p class="muted" id="send-text">Starting…</p>
+  </section>
+
+  <!-- Working -->
+  <section id="working" class="card hidden">
+    <h2 id="work-title">Making your sound</h2>
+    <p class="muted" id="work-sub">This usually takes 3 to 6 minutes. You can leave this page open, or bookmark it and come back.</p>
+    <div class="bar"><div id="work-bar"></div></div>
+    <ol class="steps" id="steps"></ol>
+  </section>
+
+  <!-- Done -->
+  <section id="done" class="card hidden">
+    <h2>Your video is ready</h2>
+    <p class="muted" id="done-sub"></p>
+    <video id="player" controls playsinline preload="metadata"></video>
+    <div class="downloads">
+      <a class="button" id="dl-video" download>Download video with sound</a>
+      <a class="button secondary" id="dl-music" download>Download music only (WAV)</a>
+      <a class="button secondary" id="dl-sfx" download>Download sound effects only (WAV)</a>
+    </div>
+    <p class="muted" id="keep-note"></p>
+    <a class="button secondary wide" href="/">Do another video</a>
+  </section>
+
+  <!-- Failed / not found -->
+  <section id="failed" class="card hidden">
+    <h2>Something went wrong</h2>
+    <p id="fail-text" class="muted"></p>
+    <a class="button wide" href="/">Try again</a>
+  </section>
+
+  <!-- Blocked country -->
+  <section id="blocked" class="card hidden">
+    <h2>Not available where you are</h2>
+    <p class="muted">Sorry, this service isn't available in the European Union, the United Kingdom or South Korea, because the sound effects model's licence doesn't cover those places.</p>
+  </section>
+
+  <footer>
+    Sound effects made with HunyuanVideo-Foley, Powered by Tencent Hunyuan (Tencent Hunyuan Community License; not available in the EU, UK or South Korea).
+    Music made with ACE-Step 1.5 (MIT licence). The sound plan is made by Claude, from Anthropic.
+    Videos and results are deleted after <span id="keep-days">7</span> days.
+    <a href="https://db-ip.com" target="_blank" rel="noopener">IP Geolocation by DB-IP</a>.
+  </footer>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const STEPS = ["Reading the video", "Planning the sound", "Making the sound effects",
+               "Composing the music", "Mixing", "Checking the result"];
+const show = id => ["upload", "sending", "working", "done", "failed", "blocked"]
+  .forEach(s => $(s).classList.toggle("hidden", s !== id));
+let cfg = null, file = null;
+
+// Every country, named in the visitor's own language.
+const CODES = ("AF AX AL DZ AS AD AO AI AQ AG AR AM AW AU AT AZ BS BH BD BB BY BE BZ BJ BM BT BO BQ BA BW BV BR IO BN BG BF BI CV KH CM CA KY CF TD CL CN CX CC CO KM CG CD CK CR CI HR CU CW CY CZ DK DJ DM DO EC EG SV GQ ER EE SZ ET FK FO FJ FI FR GF PF TF GA GM GE DE GH GI GR GL GD GP GU GT GG GN GW GY HT HM VA HN HK HU IS IN ID IR IQ IE IM IL IT JM JP JE JO KZ KE KI KP KR KW KG LA LV LB LS LR LY LI LT LU MO MG MW MY MV ML MT MH MQ MR MU YT MX FM MD MC MN ME MS MA MZ MM NA NR NP NL NC NZ NI NE NG NU NF MK MP NO OM PK PW PS PA PG PY PE PH PN PL PT PR QA RE RO RU RW BL SH KN LC MF PM VC WS SM ST SA SN RS SC SL SG SX SK SI SB SO ZA GS SS ES LK SD SR SJ SE CH SY TW TJ TZ TH TL TG TK TO TT TN TR TM TC TV UG UA AE GB US UM UY UZ VU VE VN VG VI WF EH YE ZM ZW").split(" ");
+function fillCountries(guess) {
+  let names;
+  try { names = new Intl.DisplayNames([navigator.language || "en"], { type: "region" }); } catch (e) { names = null; }
+  const list = CODES.map(c => [c, names ? names.of(c) : c]).sort((a, b) => a[1].localeCompare(b[1]));
+  for (const [code, name] of list) {
+    const o = document.createElement("option");
+    o.value = code; o.textContent = name;
+    if (code === guess) o.selected = true;
+    $("country").appendChild(o);
+  }
+}
+
+function ready() {
+  const country = $("country").value;
+  const bad = cfg && cfg.blocked.includes(country);
+  $("go").disabled = !(file && country && !bad && $("agree").checked);
+  if (bad) error("Sorry, this service isn't available in the EU, the UK or South Korea.");
+  else if (!$("form-error").dataset.sticky) error("");
+}
+function error(text, sticky) {
+  $("form-error").textContent = text;
+  $("form-error").classList.toggle("hidden", !text);
+  $("form-error").dataset.sticky = sticky && text ? "1" : "";
+}
+function pick(f) {
+  if (!f) return;
+  file = f;
+  $("drop").classList.add("has-file");
+  $("drop-title").textContent = f.name;
+  $("drop-hint").textContent = (f.size / 1048576).toFixed(1) + " MB · tap to choose a different one";
+  error("");
+  if (cfg && f.size > cfg.max_mb * 1048576) { error(`That file is too big (the limit is ${cfg.max_mb} MB).`, true); file = null; }
+  const v = document.createElement("video");
+  v.preload = "metadata";
+  v.onloadedmetadata = () => {
+    URL.revokeObjectURL(v.src);
+    if (cfg && isFinite(v.duration) && (v.duration > cfg.max_seconds + 0.5 || v.duration < cfg.min_seconds)) {
+      error(`This video is ${Math.round(v.duration)} seconds long. For now it needs to be between ${cfg.min_seconds} and ${cfg.max_seconds} seconds.`, true);
+      file = null; ready();
+    }
+  };
+  v.src = URL.createObjectURL(f);
+  ready();
+}
+
+$("file").addEventListener("change", e => pick(e.target.files[0]));
+["dragenter", "dragover"].forEach(t => $("drop").addEventListener(t, e => { e.preventDefault(); $("drop").classList.add("over"); }));
+["dragleave", "drop"].forEach(t => $("drop").addEventListener(t, e => { e.preventDefault(); $("drop").classList.remove("over"); }));
+$("drop").addEventListener("drop", e => pick(e.dataTransfer.files[0]));
+$("country").addEventListener("change", ready);
+$("agree").addEventListener("change", ready);
+
+$("form").addEventListener("submit", e => {
+  e.preventDefault();
+  if ($("go").disabled) return;
+  const data = new FormData();
+  data.append("video", file);
+  data.append("country", $("country").value);
+  data.append("agree", "yes");
+  data.append("vibe", $("vibe").value);
+  if (new URLSearchParams(location.search).get("test") === "tones") data.append("test_tones", "yes");
+  show("sending");
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/upload");
+  xhr.upload.onprogress = ev => {
+    if (!ev.lengthComputable) return;
+    const p = Math.round(100 * ev.loaded / ev.total);
+    $("send-bar").style.width = p + "%";
+    $("send-text").textContent = p < 100 ? `${p}% uploaded` : "Checking your video…";
+  };
+  xhr.onload = () => {
+    let body = {};
+    try { body = JSON.parse(xhr.responseText); } catch (err) {}
+    if (xhr.status === 200 && body.id) { history.pushState({}, "", "/j/" + body.id); watch(body.id); }
+    else { show("upload"); error(body.detail || "The upload didn't work. Please try again.", true); }
+  };
+  xhr.onerror = () => { show("upload"); error("The upload was interrupted. Please check your connection and try again.", true); };
+  xhr.send(data);
+});
+
+function drawSteps(n, state) {
+  $("steps").innerHTML = STEPS.map((s, i) => {
+    const cls = i + 1 < n || state === "done" ? "done" : i + 1 === n ? "now" : "";
+    return `<li class="${cls}">${s}</li>`;
+  }).join("");
+  const pct = state === "queued" ? 3 : Math.max(5, Math.round(100 * (n - 0.5) / STEPS.length));
+  $("work-bar").style.width = pct + "%";
+}
+
+async function watch(id) {
+  show("working");
+  drawSteps(0, "queued");
+  let misses = 0;
+  while (true) {
+    let job;
+    try {
+      const r = await fetch("/api/job/" + id, { cache: "no-store" });
+      if (r.status === 404) { $("fail-text").textContent = "That video wasn't found. Results are kept for " + (cfg ? cfg.keep_days || 7 : 7) + " days."; show("failed"); return; }
+      job = await r.json(); misses = 0;
+    } catch (err) {
+      if (++misses > 20) { $("fail-text").textContent = "Lost contact with the server. Reload this page to check again."; show("failed"); return; }
+      await new Promise(r => setTimeout(r, 5000)); continue;
+    }
+    if (job.state === "done") return finished(id, job);
+    if (job.state === "failed") {
+      $("fail-text").textContent = "We couldn't finish this video. Please try again, or try a different video. (" + (job.error || "unknown error") + ")";
+      show("failed"); return;
+    }
+    $("work-title").textContent = job.state === "queued" ? "Waiting for a free machine" : "Making your sound";
+    drawSteps(job.step_number || 0, job.state);
+    await new Promise(r => setTimeout(r, 3000));
+  }
+}
+
+function finished(id, job) {
+  const base = "/api/job/" + id + "/";
+  $("player").src = base + "final.mp4";
+  $("dl-video").href = base + "final.mp4?download=1";
+  $("dl-music").href = base + "music.wav?download=1";
+  $("dl-sfx").href = base + "sfx.wav?download=1";
+  $("done-sub").textContent = (job.name ? job.name + " · " : "") + (job.seconds ? job.seconds + " seconds" : "") +
+    (job.vibe ? " · music feeling: " + job.vibe : "") + (job.test_tones ? " · TEST TONES ONLY" : "");
+  $("keep-note").textContent = `This page and its files stay available for ${cfg ? cfg.keep_days : 7} days. Bookmark it to come back.`;
+  show("done");
+}
+
+async function start() {
+  try { cfg = await (await fetch("/api/config", { cache: "no-store" })).json(); } catch (err) { cfg = null; }
+  const m = location.pathname.match(/^\/j\/([A-Za-z0-9]+)/);
+  if (m) return watch(m[1]);
+  if (cfg && cfg.you_are_blocked) return show("blocked");
+  if (cfg) $("keep-days").textContent = cfg.keep_days;
+  fillCountries(cfg && cfg.your_country);
+  if (cfg) {
+    $("limits").textContent = `Videos from ${cfg.min_seconds} to ${cfg.max_seconds} seconds, up to ${cfg.max_mb} MB.` +
+      (cfg.left_today === 0 ? " Today's limit has been reached, please come back tomorrow." : "");
+  }
+  show("upload");
+  ready();
+}
+window.addEventListener("popstate", () => location.reload());
+start();
+</script>
+</body>
+</html>

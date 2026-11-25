@@ -39,6 +39,7 @@ from soundlib.checks import check_outputs
 
 ROOT = Path(__file__).parent
 VIDEO_TYPES = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
+APP_NAME = "ai-sound-designer"   # the Modal app with the AI models (modal_app.py)
 
 
 def say(text: str) -> None:
@@ -60,15 +61,16 @@ class Cloud:
 
     def deploy(self) -> None:
         import modal_app
+        import web_app
 
         say("Installing the cloud side on Modal (the first time builds the model images, "
             "which can take 10 to 20 minutes)...")
         with self.modal.enable_output():
             modal_app.app.deploy()
+            web_app.app.deploy()
+        say(f"Web page: {web_app.page_url()}")
 
     def _lookup(self):
-        from modal_app import APP_NAME
-
         try:
             plan_fn = self.modal.Function.from_name(APP_NAME, "plan_sound")
             plan_fn.hydrate()
@@ -101,8 +103,6 @@ class Cloud:
     def cues(self, frames: list[dict], shots: list[dict], duration: float, plan: dict) -> dict:
         payload = [{"shot": f["shot"], "time": f["time"], "jpeg": Path(f["path"]).read_bytes()}
                    for f in frames]
-        from modal_app import APP_NAME
-
         fn = self.modal.Function.from_name(APP_NAME, "plan_cues")
         result = fn.remote(payload, shots, duration, plan)
         self.claude = {**result["usage"],

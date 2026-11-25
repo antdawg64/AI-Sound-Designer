@@ -129,6 +129,18 @@
     "claude_dollars_per_mtok": {"input": 4.0, "output": 20.0}
   },
 
+  "web": {
+    "_about": "Rules for the public web page (web_app.py). Change them here, then redeploy with 'python make_sound.py --deploy'.",
+    "web_min_video_seconds": 3,
+    "web_max_video_seconds": 75,
+    "web_max_upload_mb": 400,
+    "_web_daily_job_limit": "Most videos the page will take per day (UTC), for everyone together. About $0.30 each, so 10 is about $3 a day at most. Phase 4 replaces this with a proper spend cap.",
+    "web_daily_job_limit": 10,
+    "web_keep_days": 7,
+    "_web_blocked_countries": "The effects model (HunyuanVideo-Foley) is not licensed in the EU, the UK or South Korea. Two-letter country codes.",
+    "web_blocked_countries": ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "GB", "KR"]
+  },
+
   "checks": {
     "check_duration_tolerance": 0.1,
     "check_lufs_tolerance": 1.0,
