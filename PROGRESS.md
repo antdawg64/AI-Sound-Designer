@@ -435,3 +435,31 @@ Bug fixed on the way: with effects about 20 dB below full scale the master limit
 hard, and the AAC encode then overshot to +0.9 dBTP on one tile. `mixing.mix` now checks
 the encoded file and limits harder if it is over the peak target. Worth testing later:
 that heavy limiting on effect spikes may itself make the music pump.
+
+## Tuning round, 2026-11-25
+
+From Anthony's ratings in `ratings.csv` (current settings scored 1.0 out of 5):
+
+- `as_round9`: 2.0 (better)
+- `gentle_levels`: 3.0 (better)
+- `hands_off`: 4.0 (better (all its settings applied))
+- `no_dips`: 2.0 (better)
+
+New defaults written to `settings.json`:
+
+- `music_scoring`: `sections` to `repaint`
+- `section_instruments`: `own` to `shared`
+- `cue_hit_dip_db`: `{"small": -5.0, "big": -14.0}` to `{"small": 0.0, "big": 0.0}`
+- `cue_hit_accent_db`: `{"small": 1.5, "big": 3.0}` to `{"small": 0.0, "big": 0.0}`
+- `cue_intensity_db`: `[-10.0, -6.0, -3.0, -1.0, 0.0]` to `[0.0, 0.0, 0.0, 0.0, 0.0]`
+
+Round 10 outcome: "volume left exactly as the music was played" scored 4 (current 1).
+Defaults are now one continuous piece (`music_scoring: repaint`), shared instruments,
+and no added level shaping (intensity all 0 dB, no dips or accents at hits). The cue
+sheet still decides where sections change and how each is written. "Evened out" was not
+rated. Finished video (the rated tile itself):
+`/mnt/project-files/prompt2_tuning/new_defaults/mitey_vacuum_tuned_round10.mp4`.
+A fresh run of `make_sound.py` with the new defaults passed all checks (180 GPU s plus
+planning, $0.30; it does not share the tuning cache). Phase 2 Modal spend about $1.50.
+
+| 2026-11-25 | Round 10 confirm run with new defaults | 180 | $0.30 |

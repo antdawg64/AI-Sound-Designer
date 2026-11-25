@@ -1,0 +1,45 @@
+{
+  "_about": "Round 10 (2026-11-25): the volume changes are what sounds rough (Anthony on round 9: 'audio leveling is bad, its not smooth. but i like the same instruments'). All tiles are one continuous piece with the same instruments; only how the volume is handled differs. Earlier rounds are in variants_round*.json.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "as_round9",
+      "label": "One piece, same instruments (the one you scored 3)",
+      "settings": {"music_scoring": "repaint", "section_instruments": "shared"},
+      "why": "For reference. The volume steps between sections and dips sharply before each big moment."
+    },
+    {
+      "id": "no_dips",
+      "label": "No dips before big moments",
+      "settings": {"music_scoring": "repaint", "section_instruments": "shared",
+                   "cue_hit_dip_db": {"small": 0.0, "big": 0.0}, "cue_hit_accent_db": {"small": 0.0, "big": 0.0}},
+      "why": "The sudden drop-outs and bumps around the big moments are removed. The volume still rises and falls by section."
+    },
+    {
+      "id": "gentle_levels",
+      "label": "No dips, and only small volume changes",
+      "settings": {"music_scoring": "repaint", "section_instruments": "shared",
+                   "cue_hit_dip_db": {"small": 0.0, "big": 0.0}, "cue_hit_accent_db": {"small": 0.0, "big": 0.0},
+                   "cue_intensity_db": [-4.0, -3.0, -2.0, -1.0, 0.0], "cue_ramp_seconds": 2.0},
+      "why": "Quiet sections are only slightly quieter than loud ones, and the volume glides over two seconds."
+    },
+    {
+      "id": "hands_off",
+      "label": "Volume left exactly as the music model played it",
+      "settings": {"music_scoring": "repaint", "section_instruments": "shared",
+                   "cue_hit_dip_db": {"small": 0.0, "big": 0.0}, "cue_hit_accent_db": {"small": 0.0, "big": 0.0},
+                   "cue_intensity_db": [0.0, 0.0, 0.0, 0.0, 0.0]},
+      "why": "No volume changes are added at all. The rise and fall comes only from how the music itself is written."
+    },
+    {
+      "id": "evened",
+      "label": "Volume evened out",
+      "settings": {"music_scoring": "repaint", "section_instruments": "shared",
+                   "cue_hit_dip_db": {"small": 0.0, "big": 0.0}, "cue_hit_accent_db": {"small": 0.0, "big": 0.0},
+                   "cue_intensity_db": [0.0, 0.0, 0.0, 0.0, 0.0], "music_even_out": 0.7},
+      "why": "No added volume changes, and the music's own loud and quiet stretches are pulled closer together."
+    }
+  ]
+}
