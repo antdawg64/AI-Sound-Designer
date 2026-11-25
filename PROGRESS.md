@@ -2,7 +2,7 @@
 
 _Last updated: 2026-11-25_
 
-## Sound editor (built 2026-11-25, not yet live)
+## Sound editor (built and live 2026-11-25)
 
 After the sound is made, the results page has a **Fine-tune the sound** button that
 opens a timeline editor (`/edit/<job id>`, desktop first).
@@ -28,8 +28,14 @@ opens a timeline editor (`/edit/<job id>`, desktop first).
 - Try it free on a laptop: `python make_sound.py v.mp4 --dry-run --out outputs/demo`,
   then `python scripts/editor_dev_server.py outputs/demo v.mp4` and open
   http://localhost:8766/edit/demo. Checks: `python -m pytest tests/ -q`.
-- Tested with test tones only (browser run: drag, delete, mute, volume, undo, save,
-  render). Not yet deployed or run with real AI sound.
+- **Live since 2026-11-25** at https://anthony-56415--ai-sound-designer.us-east.modal.run.
+  Tested there with test tones and with one real run of the vacuum video (8 clips;
+  drag, volume, save, remix and download all worked; tuning record written).
+- From a cloud session the tuning records can be listed but not downloaded (Modal's
+  storage host is not on the allowlist), so run `analyze_edits.py` on a computer, or
+  add the host the error names to the cloud environment first.
+- The front page (`web/index.html`) was redesigned the same day as a product-style
+  landing page; before/after pictures are in `/mnt/project-files/editor/`.
 - Later steps Anthony agreed to: "regenerate this one sound" and "add a sound by
   typing a description".
 ## Phase 3: web page (2026-11-25), live
