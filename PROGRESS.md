@@ -322,3 +322,24 @@ gap between music and effects matters, not the numbers themselves. Round by roun
 preferred gap has moved from effects 8 dB above music to effects about 5 dB below it.
 `tune.py --apply` now keeps winning single changes alongside a winning combination,
 unless they touch the same setting.
+
+Round 6 outcome: Anthony scored only one tile, "music level with the effects", a 4.
+With no score on the current tile `--apply` had nothing to compare with, so it was
+applied by hand: `music_lufs_no_voice` -34, equal to the effects.
+
+## Where tuning stands after six rounds (2026-11-25)
+
+Defaults now: closer planning (up to 6 frames per shot) with exact-moment effects
+6 dB softer, one main sound per shot, effects guidance 6.5, effects made over clips up
+to 8 s, no boost for "loud" sounds, music from ACE-Step 1.5 XL sft at 50 steps, music
+swells left alone, music and effects at equal level (-34 / -34), no echo, no music
+ducking under effects, one effects candidate. Best score so far is 4 out of 5.
+
+The with-voice levels were reset to `sfx_lufs` -27 and `music_lufs` -27 (voice -16):
+equal balance like the no-voice case, 11 dB under the voice. They are a guess. Nothing
+has been heard on a video with speech; test this as soon as such a video exists.
+
+Finished video with these defaults:
+`/mnt/project-files/prompt2_tuning/new_defaults/mitey_vacuum_tuned_round6.mp4` (plus
+`music_round6.wav`, `sfx_round6.wav`). All of this rests on ONE video with no speech.
+Modal spend for all Phase 2 work: about $1.00. Phase 3 has not been started.

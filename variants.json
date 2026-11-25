@@ -1,29 +1,7 @@
 {
-  "_about": "Round 6 (2026-11-25): music level. Anthony liked the XL slow music (4) but said the music is now too loud, so the default went from -26 to -29 before this round. Earlier rounds are in variants_round*.json.",
+  "_about": "Template for the next round (no variants queued). Add variants here; earlier rounds are in variants_round*.json.",
   "videos": [],
   "vibes": {},
   "include_takes": false,
-  "variants": [
-    {
-      "id": "music_quieter",
-      "label": "Music quieter still",
-      "setting": "music_lufs_no_voice",
-      "value": -32.0,
-      "why": "Music another 3 dB down, closer to the effects."
-    },
-    {
-      "id": "music_level_with_effects",
-      "label": "Music level with the effects",
-      "setting": "music_lufs_no_voice",
-      "value": -34.0,
-      "why": "Music and effects at the same loudness."
-    },
-    {
-      "id": "music_as_before",
-      "label": "Music as loud as before",
-      "setting": "music_lufs_no_voice",
-      "value": -26.0,
-      "why": "The level you called too loud, here only for reference."
-    }
-  ]
+  "variants": []
 }
