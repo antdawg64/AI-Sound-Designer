@@ -24,17 +24,24 @@ def lufs(data: np.ndarray, sr: int = C.SAMPLE_RATE) -> float:
     return float(value) if np.isfinite(value) else float("-inf")
 
 
-def set_loudness(data: np.ndarray, target: float, max_peak_db: float = -1.5) -> np.ndarray:
-    """Move audio to a target loudness without letting peaks go over max_peak_db."""
+def loudness_gain(data: np.ndarray, target: float, max_peak_db: float = -1.5) -> float:
+    """The plain gain (a multiplier) that moves audio to a target loudness without letting
+    peaks go over max_peak_db. 1.0 for silence."""
     current = lufs(data)
     if not np.isfinite(current):
-        return data
+        return 1.0
     gain = 10 ** ((target - current) / 20)
     peak = float(np.max(np.abs(data))) * gain
     limit = 10 ** (max_peak_db / 20)
     if peak > limit:
         gain *= limit / peak
-    return (data * gain).astype(np.float32)
+    return float(gain)
+
+
+def set_loudness(data: np.ndarray, target: float, max_peak_db: float = -1.5) -> np.ndarray:
+    """Move audio to a target loudness without letting peaks go over max_peak_db."""
+    gain = loudness_gain(data, target, max_peak_db)
+    return data if gain == 1.0 else (data * gain).astype(np.float32)
 
 
 def measure_file(path: str | Path) -> dict:
@@ -59,17 +66,13 @@ def level_clip(audio: np.ndarray) -> np.ndarray:
     return (audio * 10 ** (gain_db / 20)).astype(np.float32)
 
 
-def even_out(data: np.ndarray, amount: float, max_boost_db: float,
-             window: float = 2.0) -> np.ndarray:
-    """Gently reduce slow swings in level (for example a very quiet intro).
-
-    Measures the level over `window`-second stretches and moves each stretch `amount`
-    of the way (0 to 1) towards the overall median level. Fast dynamics are untouched.
-    """
+def even_out_curve(data: np.ndarray, amount: float, max_boost_db: float,
+                   window: float = 2.0) -> np.ndarray | None:
+    """The gain (a multiplier per sample) that even_out applies, or None for no change."""
     sr = C.SAMPLE_RATE
     hop = int(window * sr / 4)
     if amount <= 0 or len(data) < 4 * hop:
-        return data
+        return None
     mono = data.mean(axis=1).astype(np.float64) ** 2
     centres = np.arange(0, len(data), hop)
     half = int(window * sr / 2)
@@ -79,7 +82,18 @@ def even_out(data: np.ndarray, amount: float, max_boost_db: float,
     gain_db = np.clip((np.median(heard) - level) * amount, -max_boost_db, max_boost_db)
     gain_db[level < level.max() - 50] = 0.0  # leave true silence alone
     curve = np.interp(np.arange(len(data)), centres, gain_db)
-    return (data * (10 ** (curve / 20))[:, None]).astype(np.float32)
+    return 10 ** (curve / 20)
+
+
+def even_out(data: np.ndarray, amount: float, max_boost_db: float,
+             window: float = 2.0) -> np.ndarray:
+    """Gently reduce slow swings in level (for example a very quiet intro).
+
+    Measures the level over `window`-second stretches and moves each stretch `amount`
+    of the way (0 to 1) towards the overall median level. Fast dynamics are untouched.
+    """
+    curve = even_out_curve(data, amount, max_boost_db, window)
+    return data if curve is None else (data * curve[:, None]).astype(np.float32)
 
 
 def _loud_part_db(mono: np.ndarray) -> float:
@@ -93,13 +107,8 @@ def _loud_part_db(mono: np.ndarray) -> float:
     return float(np.percentile(levels, 90))
 
 
-def balance_shots(sfx: np.ndarray, shots: list[dict]) -> np.ndarray:
-    """Bring every shot's effects to the level its prominence calls for.
-
-    `shots` items: start, end, loudness (quiet, medium or loud). Each shot's loud parts
-    are moved to SHOT_LEVEL_DB[loudness] relative to one reference, by at most
-    SHOT_LEVEL_MAX_CHANGE_DB, gliding between shots.
-    """
+def balance_curve(sfx: np.ndarray, shots: list[dict]) -> np.ndarray | None:
+    """The gain (a multiplier per sample) that balance_shots applies, or None for no change."""
     sr, mono = C.SAMPLE_RATE, sfx.mean(axis=1)
     times, gains = [], []
     for shot in shots:
@@ -109,9 +118,19 @@ def balance_shots(sfx: np.ndarray, shots: list[dict]) -> np.ndarray:
         gains.append(0.0 if level < -80 else float(np.clip(want - level, -limit, limit)))
         times.append(shot["start"])
     if not gains:
-        return sfx
-    curve = _smooth_steps(times, gains, len(sfx), 0.3)
-    return (sfx * (10 ** (curve / 20))[:, None]).astype(np.float32)
+        return None
+    return 10 ** (_smooth_steps(times, gains, len(sfx), 0.3) / 20)
+
+
+def balance_shots(sfx: np.ndarray, shots: list[dict]) -> np.ndarray:
+    """Bring every shot's effects to the level its prominence calls for.
+
+    `shots` items: start, end, loudness (quiet, medium or loud). Each shot's loud parts
+    are moved to SHOT_LEVEL_DB[loudness] relative to one reference, by at most
+    SHOT_LEVEL_MAX_CHANGE_DB, gliding between shots.
+    """
+    curve = balance_curve(sfx, shots)
+    return sfx if curve is None else (sfx * curve[:, None]).astype(np.float32)
 
 
 def stitch_effects(segments: list[dict], duration: float) -> np.ndarray:
@@ -151,6 +170,35 @@ def stitch_effects(segments: list[dict], duration: float) -> np.ndarray:
     return out
 
 
+def _spot_audio(spot: dict) -> np.ndarray:
+    """One exact-moment effect, levelled and faded, ready to lay on the timeline."""
+    sr = C.SAMPLE_RATE
+    audio = level_clip(spot["audio"])
+    if C.SFX_LEVELING == "by_shot":
+        audio = audio * 10 ** ((-24.0 - _loud_part_db(audio.mean(axis=1))) / 20)
+    audio = audio * (10 ** ((spot["gain_db"] + C.SPOT_GAIN_DB) / 20))
+    audio = audio.astype(np.float32).copy()
+    fade_in, fade_out = min(int(0.05 * sr), len(audio) // 2), min(int(0.3 * sr), len(audio) // 2)
+    if fade_in:
+        audio[:fade_in] *= np.linspace(0.0, 1.0, fade_in, dtype=np.float32)[:, None]
+    if fade_out:
+        audio[-fade_out:] *= np.linspace(1.0, 0.0, fade_out, dtype=np.float32)[:, None]
+    return audio
+
+
+def _spot_dip(n: int) -> np.ndarray | None:
+    """How the sound already on the timeline makes room for an exact-moment effect that
+    is n samples long (a multiplier per sample), or None when SPOT_BED_DIP_DB is 0."""
+    dip = float(C.SPOT_BED_DIP_DB)
+    if dip >= 0:
+        return None
+    ramp = min(int(0.15 * C.SAMPLE_RATE), n // 2)
+    shape = np.ones(n, dtype=np.float32)
+    shape[:ramp] = np.linspace(0.0, 1.0, ramp, dtype=np.float32)
+    shape[-ramp:] = np.linspace(1.0, 0.0, ramp, dtype=np.float32)
+    return 10 ** (dip * shape / 20)
+
+
 def add_spots(sfx: np.ndarray, spots: list[dict]) -> np.ndarray:
     """Lay extra one-off effects on the effects track at their exact moments.
 
@@ -159,28 +207,60 @@ def add_spots(sfx: np.ndarray, spots: list[dict]) -> np.ndarray:
     sr = C.SAMPLE_RATE
     out = sfx.copy()
     for spot in spots:
-        audio = level_clip(spot["audio"])
-        if C.SFX_LEVELING == "by_shot":
-            audio = audio * 10 ** ((-24.0 - _loud_part_db(audio.mean(axis=1))) / 20)
-        audio = audio * (10 ** ((spot["gain_db"] + C.SPOT_GAIN_DB) / 20))
-        audio = audio.copy()
-        fade_in, fade_out = min(int(0.05 * sr), len(audio) // 2), min(int(0.3 * sr), len(audio) // 2)
-        if fade_in:
-            audio[:fade_in] *= np.linspace(0.0, 1.0, fade_in, dtype=np.float32)[:, None]
-        if fade_out:
-            audio[-fade_out:] *= np.linspace(1.0, 0.0, fade_out, dtype=np.float32)[:, None]
+        audio = _spot_audio(spot)
         a = int(round(spot["clip_start"] * sr))
         b = min(len(out), a + len(audio))
         if b > a:
-            dip = float(C.SPOT_BED_DIP_DB)
-            if dip < 0:   # the background makes room for the moment, easing down and back
-                ramp = min(int(0.15 * sr), (b - a) // 2)
-                shape = np.ones(b - a, dtype=np.float32)
-                shape[:ramp] = np.linspace(0.0, 1.0, ramp, dtype=np.float32)
-                shape[-ramp:] = np.linspace(1.0, 0.0, ramp, dtype=np.float32)
-                out[a:b] *= (10 ** (dip * shape / 20))[:, None]
+            dip = _spot_dip(b - a)
+            if dip is not None:   # the background makes room for the moment, easing down and back
+                out[a:b] *= dip[:, None]
             out[a:b] += audio[: b - a]
     return out
+
+
+def effects_layers(segments: list[dict], spots: list[dict], shot_levels: list[dict] | None,
+                   room: str, duration: float, target_lufs: float) -> list[np.ndarray]:
+    """The whole effects track, kept as one full-length layer per effect.
+
+    The layers come back in order (every segment, then every spot) and add up to the
+    finished effects track: stitched, evened out, balanced shot by shot (when
+    shot_levels is given), with the exact-moment effects, the room echo and the final
+    loudness. Keeping them apart is what lets the editor move, mute or remove a single
+    effect afterwards.
+    """
+    sr = C.SAMPLE_RATE
+    total = int(round(duration * sr))
+    layers = [stitch_effects([seg], duration) for seg in segments]
+
+    def together() -> np.ndarray:
+        out = np.zeros((total, 2), dtype=np.float32)
+        for layer in layers:
+            out += layer
+        return out
+
+    def scale(curve: np.ndarray | None) -> None:
+        if curve is not None:
+            for i, layer in enumerate(layers):
+                layers[i] = (layer * curve[:, None]).astype(np.float32)
+
+    scale(even_out_curve(together(), float(C.SFX_EVEN_OUT), float(C.SFX_EVEN_OUT_MAX_DB)))
+    if shot_levels is not None:
+        scale(balance_curve(together(), shot_levels))
+    for spot in spots:
+        audio = _spot_audio(spot)
+        a = int(round(spot["clip_start"] * sr))
+        b = min(total, a + len(audio))
+        layer = np.zeros((total, 2), dtype=np.float32)
+        if b > a:
+            dip = _spot_dip(b - a)
+            if dip is not None:
+                for earlier in layers:
+                    earlier[a:b] *= dip[:, None]
+            layer[a:b] = audio[: b - a]
+        layers.append(layer)
+    layers = [add_reverb(layer, room, float(C.SFX_REVERB)) for layer in layers]
+    gain = loudness_gain(together(), target_lufs)
+    return [(layer * gain).astype(np.float32) for layer in layers]
 
 
 REVERB_SECONDS = {"tiny enclosed space": 0.18, "small room": 0.32, "medium room": 0.5,

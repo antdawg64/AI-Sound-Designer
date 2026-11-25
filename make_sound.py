@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 
 from soundlib import config as C
-from soundlib import media, mixing, planning, proxyfix
+from soundlib import editor, media, mixing, planning, proxyfix
 from soundlib.checks import check_outputs
 
 ROOT = Path(__file__).parent
@@ -161,6 +161,8 @@ class TestTones:
             "shots": [{"shot": s["index"], "effects": [
                 {"start": s["start"], "end": s["end"], "description": "test noise",
                  "loudness": ("quiet", "medium", "loud")[s["index"] % 3]}]} for s in shots],
+            "moments": [{"time": round(duration * f, 2), "description": f"test moment {n}",
+                         "loudness": "loud"} for n, f in enumerate((0.2, 0.5, 0.8), start=1)],
             "music": {"mood": vibe or "test", "genre": "test tone", "tempo_bpm": 110,
                       "instruments": ["sine wave"], "cut_times": []},
         }
@@ -337,14 +339,6 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             say(f"    {seg['start']:.1f}-{seg['end']:.1f}s: {seg['prompt']}")
             audio, sr = backend.effects(clip, seg["prompt"], seg)
             seg["audio"] = media.to_stereo_48k(audio, sr)
-        sfx = mixing.stitch_effects(segments, duration) if segments else silence
-        sfx = sfx if parts == "music" else mixing.even_out(sfx, float(C.SFX_EVEN_OUT), float(C.SFX_EVEN_OUT_MAX_DB))
-        if C.SFX_LEVELING == "by_shot" and parts != "music":
-            rank = {"quiet": 0, "medium": 1, "loud": 2}
-            by_shot = {s["shot"]: max((fx["loudness"] for fx in s["effects"]), key=rank.get, default="medium")
-                       for s in plan["shots"]}
-            sfx = mixing.balance_shots(sfx, [{"start": s["start"], "end": s["end"],
-                                              "loudness": by_shot.get(s["index"], "medium")} for s in shots])
         if C.PLAN_DETAIL == "close" and parts != "music":
             for i, m in enumerate(plan["moments"]):
                 spot = {"index": 1000 + i, "time": m["time"], "prompt": m["description"],
@@ -363,10 +357,22 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                     C.override({"foley_candidates": usual})
                 spot["audio"] = media.to_stereo_48k(audio, sr)
                 spots.append(spot)
-            sfx = mixing.add_spots(sfx, spots)
+        # Every effect is kept as its own layer (they add up to the effects track), so
+        # the editor can move, mute or remove one effect afterwards.
+        layers, sfx = [], silence
         if parts != "music":
-            sfx = mixing.add_reverb(sfx, plan["room"], float(C.SFX_REVERB))
-            sfx = mixing.set_loudness(sfx, C.SFX_LUFS if speech else C.SFX_LUFS_NO_VOICE)
+            shot_levels = None
+            if C.SFX_LEVELING == "by_shot":
+                rank = {"quiet": 0, "medium": 1, "loud": 2}
+                by_shot = {s["shot"]: max((fx["loudness"] for fx in s["effects"]), key=rank.get, default="medium")
+                           for s in plan["shots"]}
+                shot_levels = [{"start": s["start"], "end": s["end"],
+                                "loudness": by_shot.get(s["index"], "medium")} for s in shots]
+            layers = mixing.effects_layers(segments, spots, shot_levels, plan["room"], duration,
+                                           C.SFX_LUFS if speech else C.SFX_LUFS_NO_VOICE)
+            sfx = silence.copy()
+            for layer in layers:
+                sfx += layer
 
         say("4/6 Composing the music" if parts != "effects" else "4/6 Skipping the music (effects only)")
         music_plan = plan["music"]
@@ -419,6 +425,10 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         mixing.save_stem(out_dir / "music.wav", music)
         mixing.mix(video, out_dir / "sfx.wav", out_dir / "music.wav", voice_wav,
                    out_dir / "final.mp4", work, duration)
+
+        editor.build(out_dir, segments=segments, spots=spots, layers=layers, music=music,
+                     voice_wav=voice_wav, shots=shots, duration=duration, plan=plan,
+                     caption=caption, parts=parts, work=work)
 
         say("6/6 Checking the result")
         result = check_outputs(video, out_dir, parts)
