@@ -1,0 +1,29 @@
+{
+  "_about": "Round 8 (2026-11-25): smoother transitions between the music sections (Anthony: 'needs smoother transitions but right thought'). Earlier rounds are in variants_round*.json.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "blend_1s",
+      "label": "Sections blend over 1 second",
+      "setting": "section_crossfade_seconds",
+      "value": 1.0,
+      "why": "Instead of switching sharply on the cut, each section fades into the next over one second."
+    },
+    {
+      "id": "blend_2s",
+      "label": "Sections blend over 2 seconds",
+      "setting": "section_crossfade_seconds",
+      "value": 2.0,
+      "why": "A longer, gentler blend between sections."
+    },
+    {
+      "id": "one_piece",
+      "label": "One continuous piece, rewritten per section",
+      "setting": "music_scoring",
+      "value": "repaint",
+      "why": "The music model composes one full track, then rewrites each section inside it to fit the story, so the joins are made by the model itself."
+    }
+  ]
+}

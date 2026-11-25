@@ -395,3 +395,9 @@ thought". Two approaches built:
 Page run `20261125-045101`: current, blend 1 s, blend 2 s, one piece.
 
 | 2026-11-25 | Round 8: blended joins and one-piece scoring | 43 | $0.02 est. |
+
+Round 8 result (`ratings_round8.csv`): blend 1 s scored 1, blend 2 s scored 1, one
+piece scored 3. The current tile was not rated; sections with a sharp switch scored 4
+in round 7, so nothing was applied and the defaults are unchanged
+(`music_scoring: sections`, `section_crossfade_seconds: 0`). Crossfading two separately
+composed sections is clearly worse than a sharp switch. Smoother joins are still open.
