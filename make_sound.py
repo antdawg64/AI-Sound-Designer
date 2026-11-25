@@ -290,8 +290,15 @@ class Cached:
 
 # --- The pipeline -----------------------------------------------------------------
 
+PARTS = ("both", "effects", "music")
+
+
 def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
-               vibe: str | None = None, music_flavour: str = "") -> dict:
+               vibe: str | None = None, music_flavour: str = "", parts: str = "both") -> dict:
+    """parts: "both" (effects and music), "effects" (effects only) or "music" (music only).
+    The part that is left out is written as a silent file, so every output always exists."""
+    if parts not in PARTS:
+        raise ValueError(f"parts must be one of {PARTS}, not {parts!r}")
     started = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="make_sound_"))
@@ -299,6 +306,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         say(f"\n=== {video.name} ===")
         info = media.probe(video)
         duration = info["duration"]
+        silence = np.zeros((int(round(duration * C.SAMPLE_RATE)), 2), dtype=np.float32)
         say(f"1/6 Reading the video: {duration:.1f}s, {info['width']}x{info['height']}, "
             f"{'has' if info['has_audio'] else 'no'} existing audio")
 
@@ -320,24 +328,24 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         plan = planning.clean_plan(backend.plan(frames, shots, duration, speech, vibe), shots, duration)
         say(f"    {plan['summary']}")
 
-        say("3/6 Generating sound effects")
-        segments = media.plan_segments(shots, duration)
+        say("3/6 Generating sound effects" if parts != "music" else "3/6 Skipping sound effects (music only)")
+        segments = media.plan_segments(shots, duration) if parts != "music" else []
+        spots = []
         for seg in segments:
             seg["prompt"], seg["gain_db"] = planning.segment_prompt(plan, seg)
             clip = media.cut_clip(video, seg, work / f"clip{seg['index']:03d}.mp4")
             say(f"    {seg['start']:.1f}-{seg['end']:.1f}s: {seg['prompt']}")
             audio, sr = backend.effects(clip, seg["prompt"], seg)
             seg["audio"] = media.to_stereo_48k(audio, sr)
-        sfx = mixing.stitch_effects(segments, duration)
-        sfx = mixing.even_out(sfx, float(C.SFX_EVEN_OUT), float(C.SFX_EVEN_OUT_MAX_DB))
-        if C.SFX_LEVELING == "by_shot":
+        sfx = mixing.stitch_effects(segments, duration) if segments else silence
+        sfx = sfx if parts == "music" else mixing.even_out(sfx, float(C.SFX_EVEN_OUT), float(C.SFX_EVEN_OUT_MAX_DB))
+        if C.SFX_LEVELING == "by_shot" and parts != "music":
             rank = {"quiet": 0, "medium": 1, "loud": 2}
             by_shot = {s["shot"]: max((fx["loudness"] for fx in s["effects"]), key=rank.get, default="medium")
                        for s in plan["shots"]}
             sfx = mixing.balance_shots(sfx, [{"start": s["start"], "end": s["end"],
                                               "loudness": by_shot.get(s["index"], "medium")} for s in shots])
-        spots = []
-        if C.PLAN_DETAIL == "close":
+        if C.PLAN_DETAIL == "close" and parts != "music":
             for i, m in enumerate(plan["moments"]):
                 spot = {"index": 1000 + i, "time": m["time"], "prompt": m["description"],
                         "gain_db": C.LOUDNESS_DB[m["loudness"]],
@@ -356,51 +364,55 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                 spot["audio"] = media.to_stereo_48k(audio, sr)
                 spots.append(spot)
             sfx = mixing.add_spots(sfx, spots)
-        sfx = mixing.add_reverb(sfx, plan["room"], float(C.SFX_REVERB))
-        sfx = mixing.set_loudness(sfx, C.SFX_LUFS if speech else C.SFX_LUFS_NO_VOICE)
+        if parts != "music":
+            sfx = mixing.add_reverb(sfx, plan["room"], float(C.SFX_REVERB))
+            sfx = mixing.set_loudness(sfx, C.SFX_LUFS if speech else C.SFX_LUFS_NO_VOICE)
 
-        say("4/6 Composing the music")
+        say("4/6 Composing the music" if parts != "effects" else "4/6 Skipping the music (effects only)")
         music_plan = plan["music"]
         bpm, miss = planning.pick_tempo(music_plan["tempo_bpm"], music_plan["cut_times"])
         caption = planning.music_caption(music_plan, music_flavour)
         say(f"    {caption} at {bpm} BPM")
         cues = None
-        if C.MUSIC_SCORING != "single":
+        if C.MUSIC_SCORING != "single" and parts != "effects":
             cues = planning.clean_cues(backend.cues(frames, shots, duration, plan), shots, duration)
             cues["sections"] = planning.settle_sections(cues["sections"], bpm, duration)
             for sec in cues["sections"]:
                 say(f"    {sec['start']:.1f}-{sec['end']:.1f}s, intensity {sec['intensity']}: {sec['description']}")
             for hit in cues["hits"]:
                 say(f"    {hit['strength']} hit at {hit['time']:.1f}s: {hit['what']}")
-        if cues and C.MUSIC_SCORING == "sections":
-            parts = []
+        if parts == "effects":
+            music = silence
+        elif cues and C.MUSIC_SCORING == "sections":
+            pieces = []
             for sec in cues["sections"]:
                 length = sec["end"] - sec["start"]
                 part_caption = planning.section_caption(music_plan, music_flavour, sec)
                 raw, sr = backend.compose(part_caption, bpm,
                                           max(C.MUSIC_MIN_SECONDS, float(np.ceil(length)) + 9.0),
                                           cues["key"])
-                parts.append(media.to_stereo_48k(raw, sr))
-            music = mixing.join_sections(parts, cues["sections"], duration, bpm)
+                pieces.append(media.to_stereo_48k(raw, sr))
+            music = mixing.join_sections(pieces, cues["sections"], duration, bpm)
             music = mixing.shape_music(music, C.SAMPLE_RATE, duration)
         elif cues and C.MUSIC_SCORING == "repaint":
             keep, last = float(C.REPAINT_KEEP_SECONDS), len(cues["sections"]) - 1
-            parts = []
+            pieces = []
             for i, sec in enumerate(cues["sections"]):
                 a = sec["start"] + (keep if i > 0 else 0.0)
                 b = sec["end"] - (keep if i < last else 0.0)
                 if b - a >= 1.0:   # too short to rewrite once the joins are kept: leave as composed
-                    parts.append({"start": round(a, 3), "end": round(b, 3),
+                    pieces.append({"start": round(a, 3), "end": round(b, 3),
                                   "caption": planning.section_caption(music_plan, music_flavour, sec)})
             raw, sr = backend.compose_scored(
-                caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1), cues["key"], parts)
+                caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1), cues["key"], pieces)
             music = mixing.shape_music(raw, sr, duration)
         else:
             raw, sr = backend.compose(caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1))
             music = mixing.shape_music(raw, sr, duration)
         if cues:
             music = mixing.shape_to_cues(music, cues)
-        music = mixing.set_loudness(music, C.MUSIC_LUFS if speech else C.MUSIC_LUFS_NO_VOICE)
+        if parts != "effects":
+            music = mixing.set_loudness(music, C.MUSIC_LUFS if speech else C.MUSIC_LUFS_NO_VOICE)
 
         say("5/6 Mixing")
         mixing.save_stem(out_dir / "sfx.wav", sfx)
@@ -409,7 +421,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                    out_dir / "final.mp4", work, duration)
 
         say("6/6 Checking the result")
-        result = check_outputs(video, out_dir)
+        result = check_outputs(video, out_dir, parts)
         for check in result["checks"]:
             say(f"    {'PASS' if check['passed'] else 'FAIL'}  {check['name']}: {check['detail']}")
 
@@ -419,7 +431,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         report = {
             "video": str(video), "output_dir": str(out_dir), "duration": duration,
             "test_tones_only": isinstance(getattr(backend, "backend", backend), TestTones),
-            "vibe": vibe, "music_flavour": music_flavour, "settings": C.current(),
+            "vibe": vibe, "music_flavour": music_flavour, "parts": parts, "settings": C.current(),
             "passed": result["passed"], "checks": result["checks"],
             "shots": shots, "speech": speech,
             "segments": [{k: v for k, v in s.items() if k != "audio"} for s in segments],
@@ -479,6 +491,8 @@ def main() -> int:
     parser.add_argument("--keep-work", action="store_true", help="keep temporary files")
     parser.add_argument("--versions", action="store_true",
                         help="make three different takes to pick from")
+    parser.add_argument("--only", choices=["effects", "music"],
+                        help="make only the sound effects or only the music")
     parser.add_argument("--vibe", help="the feeling the music should go for, e.g. suspenseful")
     args = parser.parse_args()
 
@@ -509,7 +523,7 @@ def main() -> int:
                 made = make_versions(video, out_dir, backend, vibe=args.vibe)
             else:
                 made = [make_sound(video, out_dir, backend, keep_work=args.keep_work,
-                                   vibe=args.vibe)]
+                                   vibe=args.vibe, parts=args.only or "both")]
             reports.extend(made)
             if not all(r["passed"] for r in made):
                 failed.append(video.name)

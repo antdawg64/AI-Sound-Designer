@@ -9,8 +9,9 @@ from .media import probe, read_audio
 from .mixing import lufs, measure_file
 
 
-def check_outputs(source: Path, out_dir: Path) -> dict:
-    """Check one finished job. Returns {'passed': bool, 'checks': [...]}."""
+def check_outputs(source: Path, out_dir: Path, parts: str = "both") -> dict:
+    """Check one finished job. Returns {'passed': bool, 'checks': [...]}.
+    With parts "effects" or "music", the left-out stem is meant to be silent."""
     checks = []
 
     def add(name: str, ok: bool, detail: str) -> None:
@@ -35,7 +36,10 @@ def check_outputs(source: Path, out_dir: Path) -> dict:
     add("no clipping", m["true_peak_db"] <= C.CHECK_MAX_TRUE_PEAK_DB,
         f"true peak {m['true_peak_db']:.1f} dBTP")
 
-    for name, path in (("music stem is not silent", music), ("effects stem is not silent", sfx)):
+    for name, path, made in (("music stem is not silent", music, parts != "effects"),
+                             ("effects stem is not silent", sfx, parts != "music")):
+        if not made:
+            continue
         data, sr = read_audio(path)
         level = lufs(data, sr)
         length_ok = abs(len(data) / sr - src["duration"]) <= C.CHECK_DURATION_TOLERANCE

@@ -121,7 +121,8 @@ def run_job(job_id: str, test_tones: bool = False) -> dict:
     _update(job_id, state="working", step="Starting up", step_number=0, started=time.time())
     try:
         backend = M.TestTones() if test_tones else M.Cloud()
-        report = M.make_sound(video, folder / "out", backend, vibe=job.get("vibe") or None)
+        report = M.make_sound(video, folder / "out", backend, vibe=job.get("vibe") or None,
+                              parts=job.get("parts", "both"))
         (folder / "report.json").write_text(json.dumps(report, indent=2))
         jobs_volume.commit()
         _update(job_id, state="done", step="Finished", step_number=6, passed=report["passed"],
@@ -190,7 +191,8 @@ def web():
 
     @api.post("/api/upload")
     def upload(request: Request, video: UploadFile = File(...), country: str = Form(...),
-               agree: str = Form(""), vibe: str = Form(""), test_tones: str = Form("")):
+               agree: str = Form(""), vibe: str = Form(""), parts: str = Form("both"),
+               test_tones: str = Form("")):
         country = country.strip().upper()
         ip_country = _country_of(visitor_ip(request))
         if agree != "yes":
@@ -200,6 +202,8 @@ def web():
                                      "South Korea, because of the sound model's licence.")
         if len(country) != 2:
             raise HTTPException(400, "Please choose the country you're in.")
+        if parts not in ("both", "effects", "music"):
+            raise HTTPException(400, "Please choose what sound you want.")
         ext = Path(video.filename or "video.mp4").suffix.lower()
         if ext not in VIDEO_TYPES:
             raise HTTPException(400, "Please upload a video file (MP4, MOV, M4V, MKV or WEBM).")
@@ -233,7 +237,7 @@ def web():
         job = {"id": job_id, "state": "queued", "step": "Waiting to start", "step_number": 0,
                "created": time.time(), "name": Path(video.filename or "video").stem[:80],
                "ext": ext, "seconds": round(seconds, 1), "vibe": vibe.strip()[:120],
-               "country": country, "ip_country": ip_country}
+               "parts": parts, "country": country, "ip_country": ip_country}
         (folder / "job.json").write_text(json.dumps(job, indent=2))
         jobs_volume.commit()
         job_status[job_id] = job
@@ -248,7 +252,7 @@ def web():
             raise HTTPException(404, "That job wasn't found. Jobs are kept for "
                                      f"{C.WEB_KEEP_DAYS} days.")
         public = ("id", "state", "step", "step_number", "created", "started", "name", "seconds",
-                  "vibe", "error", "wall_seconds", "test_tones")
+                  "vibe", "parts", "error", "wall_seconds", "test_tones")
         return {k: job[k] for k in public if k in job} | {"now": time.time()}
 
     @api.get("/api/job/{job_id}/{name}")

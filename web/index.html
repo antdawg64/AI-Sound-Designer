@@ -36,6 +36,12 @@
   label.field small { font-weight: 400; color: var(--muted); }
   select, input[type=text] { width: 100%; margin-top: 6px; padding: 10px 12px; font: inherit;
           color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+  fieldset.choice { border: 0; padding: 0; margin: 18px 0 0; }
+  fieldset.choice legend { padding: 0; font-weight: 600; font-size: 15px; }
+  fieldset.choice label { display: flex; gap: 10px; align-items: center; margin-top: 8px; padding: 10px 12px;
+          border: 1px solid var(--line); border-radius: 10px; cursor: pointer; font-size: 15px; }
+  fieldset.choice label:has(input:checked) { border-color: var(--accent); background: var(--soft); }
+  fieldset.choice input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
   .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; font-size: 14px; color: var(--muted); }
   .check input { margin-top: 4px; width: 18px; height: 18px; flex: none; }
   button, .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -81,7 +87,14 @@
         <span id="drop-hint">or drag it here</span>
       </label>
 
-      <label class="field" for="vibe">Feeling for the music <small>(optional)</small>
+      <fieldset class="field choice">
+        <legend>What sound do you want?</legend>
+        <label><input type="radio" name="parts" value="both" checked> <span><b>Effects and music</b></span></label>
+        <label><input type="radio" name="parts" value="effects"> <span><b>Sound effects only</b></span></label>
+        <label><input type="radio" name="parts" value="music"> <span><b>Music only</b></span></label>
+      </fieldset>
+
+      <label class="field" for="vibe" id="vibe-field">Feeling for the music <small>(optional)</small>
         <input type="text" id="vibe" maxlength="120" placeholder="for example: tense, playful, epic, calm">
       </label>
 
@@ -210,6 +223,9 @@ $("file").addEventListener("change", e => pick(e.target.files[0]));
 $("drop").addEventListener("drop", e => pick(e.dataTransfer.files[0]));
 $("country").addEventListener("change", ready);
 $("agree").addEventListener("change", ready);
+const parts = () => document.querySelector("input[name=parts]:checked").value;
+document.querySelectorAll("input[name=parts]").forEach(r => r.addEventListener("change", () =>
+  $("vibe-field").classList.toggle("hidden", parts() === "effects")));
 
 $("form").addEventListener("submit", e => {
   e.preventDefault();
@@ -218,7 +234,8 @@ $("form").addEventListener("submit", e => {
   data.append("video", file);
   data.append("country", $("country").value);
   data.append("agree", "yes");
-  data.append("vibe", $("vibe").value);
+  data.append("vibe", parts() === "effects" ? "" : $("vibe").value);
+  data.append("parts", parts());
   if (new URLSearchParams(location.search).get("test") === "tones") data.append("test_tones", "yes");
   show("sending");
   const xhr = new XMLHttpRequest();
@@ -239,8 +256,9 @@ $("form").addEventListener("submit", e => {
   xhr.send(data);
 });
 
-function drawSteps(n, state) {
+function drawSteps(n, state, which) {
   $("steps").innerHTML = STEPS.map((s, i) => {
+    if ((which === "music" && i === 2) || (which === "effects" && i === 3)) return "";
     const cls = i + 1 < n || state === "done" ? "done" : i + 1 === n ? "now" : "";
     return `<li class="${cls}">${s}</li>`;
   }).join("");
@@ -268,7 +286,7 @@ async function watch(id) {
       show("failed"); return;
     }
     $("work-title").textContent = job.state === "queued" ? "Waiting for a free machine" : "Making your sound";
-    drawSteps(job.step_number || 0, job.state);
+    drawSteps(job.step_number || 0, job.state, job.parts);
     await new Promise(r => setTimeout(r, 3000));
   }
 }
@@ -279,7 +297,10 @@ function finished(id, job) {
   $("dl-video").href = base + "final.mp4?download=1";
   $("dl-music").href = base + "music.wav?download=1";
   $("dl-sfx").href = base + "sfx.wav?download=1";
-  $("done-sub").textContent = (job.name ? job.name + " · " : "") + (job.seconds ? job.seconds + " seconds" : "") +
+  $("dl-music").classList.toggle("hidden", job.parts === "effects");
+  $("dl-sfx").classList.toggle("hidden", job.parts === "music");
+  const label = { both: "effects and music", effects: "sound effects only", music: "music only" };
+  $("done-sub").textContent = (job.name ? job.name + " · " : "") + (job.seconds ? job.seconds + " seconds" : "") + " · " + (label[job.parts] || label.both) +
     (job.vibe ? " · music feeling: " + job.vibe : "") + (job.test_tones ? " · TEST TONES ONLY" : "");
   $("keep-note").textContent = `This page and its files stay available for ${cfg ? cfg.keep_days : 7} days. Bookmark it to come back.`;
   show("done");
