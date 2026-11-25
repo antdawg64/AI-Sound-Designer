@@ -657,3 +657,10 @@ scratch" and "Round 12 version". Copy:
   lost to a download error on the first run (about $0.14).
 
 | 2026-11-25 | Lyria test: fresh baseline + Lyria 2 + Lyria 3 Pro, and trial clips | 146 | about $0.29 Modal + about $0.60 Google (est.) |
+
+**Round 14 result (2026-11-25, Anthony's scores):** Lyria 3 Pro 4, Lyria 2 3, current
+music 2 (`ratings_round14.csv`). Anthony chose on a decision card to make Lyria 3 Pro
+the music on the live site. Defaults are now `music_provider: lyria`,
+`lyria_model: lyria-3-pro-preview`; if Google fails, the run falls back to ACE-Step.
+Going live needs the web app redeployed from a branch that contains this one (the
+editor thread owns that deploy); `ai-sound-designer-lyria` is already deployed.
