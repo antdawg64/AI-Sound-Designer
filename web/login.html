@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · AI Sound Designer</title>
+<meta name="robots" content="noindex">
+<style>
+  :root {
+    --bg: #fbfaf8; --card: #ffffff; --ink: #14141a; --muted: #5f5e68; --line: #e6e4de;
+    --accent: #4c5fe8; --accent-2: #8b5cf6; --accent-ink: #ffffff; --soft: #eef0fe;
+    --bad: #c92a2a; --bad-soft: #fff0f0; --good: #2b8a3e; --field: #f6f5f1;
+    --moment: #e8590c; --bg-clip: #0c8599; --music: #7048e8;
+    --glow-1: rgba(76, 95, 232, .16); --glow-2: rgba(139, 92, 246, .14);
+    --shadow: 0 1px 2px rgba(20, 20, 26, .05), 0 12px 40px -12px rgba(20, 20, 26, .18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0c10; --card: #16161c; --ink: #f1f1f5; --muted: #a3a2ad; --line: #292932;
+      --accent: #8093ff; --accent-2: #b197fc; --accent-ink: #0b0b10; --soft: #1f2340;
+      --bad: #ff8787; --bad-soft: #3a1d1f; --good: #69db7c; --field: #101015;
+      --moment: #ff922b; --bg-clip: #3bc9db; --music: #9775fa;
+      --glow-1: rgba(128, 147, 255, .16); --glow-2: rgba(177, 151, 252, .12);
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 16px 48px -12px rgba(0, 0, 0, .7);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; color: var(--ink); -webkit-font-smoothing: antialiased;
+         font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+         background: radial-gradient(700px 420px at 15% 0%, var(--glow-1), transparent 70%),
+                     radial-gradient(640px 460px at 90% 10%, var(--glow-2), transparent 70%), var(--bg); }
+  .card { width: 100%; max-width: 400px; background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 32px; box-shadow: var(--shadow); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: -0.02em; margin-bottom: 26px; }
+  .mark { width: 32px; height: 32px; }
+  h1 { font-size: 24px; letter-spacing: -0.02em; margin: 0 0 6px; }
+  p { margin: 0 0 20px; color: var(--muted); font-size: 15px; }
+  label { display: block; font-weight: 600; font-size: 14px; }
+  input { width: 100%; margin-top: 8px; padding: 12px 14px; font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 12px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { width: 100%; margin-top: 18px; padding: 14px 22px; font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1; border: 0; border-radius: 12px;
+           background: linear-gradient(100deg, var(--accent), var(--accent-2)); color: var(--accent-ink); cursor: pointer; box-shadow: 0 6px 18px -6px var(--accent); }
+  .bad { margin: 0 0 16px; padding: 10px 14px; border-radius: 12px; font-size: 14px; background: var(--bad-soft); color: var(--bad); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="brand"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4c5fe8"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg)"/><g fill="#fff"><rect x="7" y="13" width="3" height="6" rx="1.5"/><rect x="12" y="8" width="3" height="16" rx="1.5"/><rect x="17" y="11" width="3" height="10" rx="1.5"/><rect x="22" y="14" width="3" height="4" rx="1.5"/></g></svg><span>AI Sound Designer</span></div>
+  <h1>Sign in</h1>
+  <p>This preview is private. Enter the password to continue.</p>
+  <div class="bad hidden" id="bad" role="alert">That password isn't right. Please try again.</div>
+  <form method="post" action="/login">
+    <label for="password">Password
+      <input type="password" id="password" name="password" autocomplete="current-password" required autofocus>
+    </label>
+    <input type="hidden" name="next" id="next" value="/">
+    <button type="submit">Continue</button>
+  </form>
+</main>
+<script>
+const q = new URLSearchParams(location.search);
+if (q.get("error")) document.getElementById("bad").classList.remove("hidden");
+const next = q.get("next") || "";
+if (/^\/[A-Za-z0-9/_-]*$/.test(next)) document.getElementById("next").value = next;
+</script>
+</body>
+</html>

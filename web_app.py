@@ -36,6 +36,8 @@ jobs_volume = modal.Volume.from_name("ai-sound-designer-jobs", create_if_missing
 # What people change in the editor, kept for good (jobs are deleted after a few days) so
 # analyze_edits.py can learn better defaults from it. One small file per editing session.
 TUNING_VOLUME = "ai-sound-designer-tuning-data"
+# The shared password that keeps the site private (key SITE_PASSWORD). See soundlib/gate.py.
+SITE_PASSWORD_SECRET = "site-password"
 job_status = modal.Dict.from_name("ai-sound-designer-jobs", create_if_missing=True)
 JOBS = Path("/jobs")
 GEO_DB = "/geo/country.mmdb"
@@ -158,7 +160,8 @@ def cleanup() -> int:
 
 # --- The page and its API ----------------------------------------------------------
 
-@app.function(image=image, volumes={str(JOBS): jobs_volume}, timeout=900, scaledown_window=300)
+@app.function(image=image, volumes={str(JOBS): jobs_volume}, timeout=900, scaledown_window=300,
+              secrets=[modal.Secret.from_name(SITE_PASSWORD_SECRET)])
 @modal.concurrent(max_inputs=20)
 @modal.asgi_app(label="ai-sound-designer")
 def web():
@@ -174,6 +177,11 @@ def web():
     page = next(p for p in (Path("/root/web/index.html"), ROOT / "web" / "index.html")
                 if p.exists()).read_text()
     blocked = {c.upper() for c in C.WEB_BLOCKED_COUNTRIES}
+
+    import os
+
+    from soundlib import gate
+    gate.attach(api, os.environ.get("SITE_PASSWORD", ""), str(C.WEB_LOGIN_URL or ""), Path("/root/web"))
 
     def visitor_ip(request: Request) -> str | None:
         forwarded = request.headers.get("x-forwarded-for", "")
