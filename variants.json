@@ -1,7 +1,22 @@
 {
-  "_about": "Template for the next round (no variants queued). Add variants here; earlier rounds are in variants_round*.json.",
+  "_about": "Round 7 (2026-11-25): music scored to the picture, like film sound design. Earlier rounds are in variants_round*.json.",
   "videos": [],
   "vibes": {},
   "include_takes": false,
-  "variants": []
+  "variants": [
+    {
+      "id": "music_shaped",
+      "label": "Music follows the story",
+      "setting": "music_scoring",
+      "value": "shaped",
+      "why": "The same track, but it now sits low in the calm parts, builds with the tension, drops out just before the big moments and lands on them."
+    },
+    {
+      "id": "music_sections",
+      "label": "Music scored in sections",
+      "setting": "music_scoring",
+      "value": "sections",
+      "why": "Each part of the story gets its own piece of music, in the same tempo and key, changing on the cuts. It also builds, drops out and lands like the tile before."
+    }
+  ]
 }

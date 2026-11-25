@@ -46,6 +46,11 @@
   "music": {
     "_music_prompt_template": "The text handed to the music model. Placeholders: {genre} {mood} {instruments} {flavour}.",
     "music_prompt_template": "{genre}, {mood}, instrumental background music, {instruments}, clean mix, no vocals",
+    "_music_scoring": "single = one track for the whole video. shaped = one track, with its level following a cue sheet from Claude (quiet in calm stretches, building with the tension, dropping out just before big moments and hitting on them). sections = the cue sheet's sections are each composed separately, same tempo and key, and change on the cuts; also shaped.",
+    "music_scoring": "single",
+    "cue_intensity_db": [-10.0, -6.0, -3.0, -1.0, 0.0],
+    "cue_hit_dip_db": {"small": -5.0, "big": -14.0},
+    "cue_hit_accent_db": {"small": 1.5, "big": 3.0},
     "_music_tempo_rule": "match_cuts = nudge the tempo so beats land near the cuts; as_planned = use the planned tempo exactly; half_time = half the planned tempo, then match cuts.",
     "music_tempo_rule": "match_cuts",
     "music_bpm_search": 0.12,

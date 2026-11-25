@@ -343,3 +343,24 @@ Finished video with these defaults:
 `/mnt/project-files/prompt2_tuning/new_defaults/mitey_vacuum_tuned_round6.mp4` (plus
 `music_round6.wav`, `sfx_round6.wav`). All of this rests on ONE video with no speech.
 Modal spend for all Phase 2 work: about $1.00. Phase 3 has not been started.
+
+## Round 7 (2026-11-25): music scored to the picture, waiting for Anthony's ratings
+
+Anthony asked whether the music was timed to the picture. It was not: one brief, one
+track, only the tempo nudged so beats fall near cuts. He wants film-style scoring.
+Built `music_scoring` (settings.json):
+
+- A second Claude call (`plan_cues` on Modal, `planning.ask_cues`) writes a cue sheet:
+  a key, 2 to 5 sections on shot boundaries with intensity 1 to 5 and a description,
+  and up to six hits (small or big). It is cached like the plan and does not change the
+  effects plan. About 9 cents per video.
+- `shaped`: the usual single track, with its level following the cue sheet
+  (`mixing.shape_to_cues`): section intensity, a dip before each hit and an accent on it.
+- `sections`: each section composed separately at the same tempo and key
+  (`keyscale`), started on a bar line past any weak intro, joined on the cuts
+  (`mixing.join_sections`), then shaped the same way.
+
+Page run `20261125-043518`: current, shaped, sections. Not built: separate stingers or
+risers at hits, and tempo changes between sections.
+
+| 2026-11-25 | Round 7: cue sheet and sectioned music | 38 | $0.11 est. |

@@ -149,6 +149,95 @@ def ask_claude(frames: list[dict], shots: list[dict], duration: float, speech: l
     }
 
 
+# --- Cue sheet: scoring the music to the picture --------------------------------
+
+class CueSection(BaseModel):
+    start: float
+    end: float
+    intensity: Literal[1, 2, 3, 4, 5]
+    description: str
+
+
+class CueHit(BaseModel):
+    time: float
+    strength: Literal["small", "big"]
+    what: str
+
+
+class CueSheet(BaseModel):
+    key: str
+    sections: list[CueSection]
+    hits: list[CueHit]
+
+
+CUE_SYSTEM = """You are a film composer spotting a short video: deciding how the music \
+should follow the picture. You are shown still frames with timestamps, the shot list, \
+and the sound plan already made for it (summary, music brief, key moments).
+
+Write a cue sheet:
+- key: one musical key for the whole score that suits the mood, like "D minor".
+- sections: split the video into 2 to 5 story beats that cover it from start to end \
+with no gaps. Each section starts and ends on a shot boundary from the list, and is at \
+least 4 seconds long. For each give intensity from 1 (almost nothing, a held note or \
+quiet pulse) to 5 (full climax), following the tension of the story, and a description \
+of what the music does there in a few words a music model understands (for example \
+"sparse low drone, soft ticking pulse" or "driving staccato strings, pounding drums"). \
+Keep the instruments of the music brief so the sections sound like one score.
+- hits: the instants the music should mark, at most six, chosen from the key moments \
+or the most dramatic cuts. time in seconds; strength "big" for the one or two most \
+important (the music drops out just before and lands on it), otherwise "small"; what is \
+a few words saying what happens."""
+
+
+def ask_cues(frames: list[dict], shots: list[dict], duration: float, plan: dict) -> dict:
+    """Ask Claude for the cue sheet. Runs inside Modal, like ask_claude."""
+    import json
+
+    import anthropic
+
+    content = build_user_content(frames, shots, duration, [])[:-1]
+    brief = {"summary": plan.get("summary"), "music": plan.get("music"),
+             "key_moments": plan.get("moments", [])}
+    content.append({"type": "text", "text": "The sound plan so far:\n" + json.dumps(brief, indent=1)
+                    + "\n\nWrite the cue sheet for this video."})
+    response = anthropic.Anthropic().messages.parse(
+        model=C.PLAN_MODEL, max_tokens=8000, system=CUE_SYSTEM,
+        messages=[{"role": "user", "content": content}], output_format=CueSheet)
+    if response.parsed_output is None:
+        raise RuntimeError(f"Claude returned no cue sheet (stop reason: {response.stop_reason}).")
+    usage = response.usage
+    cost = (usage.input_tokens * C.CLAUDE_DOLLARS_PER_MTOK["input"]
+            + usage.output_tokens * C.CLAUDE_DOLLARS_PER_MTOK["output"]) / 1e6
+    return {"cues": response.parsed_output.model_dump(),
+            "usage": {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
+                      "dollars": round(cost, 4), "model": response.model}}
+
+
+def clean_cues(cues: dict, shots: list[dict], duration: float) -> dict:
+    """Make the cue sheet safe to use: sections tile the video and sit on real cuts."""
+    cues = CueSheet.model_validate(cues).model_dump()
+    bounds = [0.0] + [s["start"] for s in shots[1:]] + [duration]
+    snap = lambda t: min(bounds, key=lambda b: abs(b - t))
+    sections = []
+    for sec in sorted(cues["sections"], key=lambda s: s["start"]):
+        start = 0.0 if not sections else sections[-1]["end"]
+        end = max(snap(sec["end"]), start)
+        if end - start < 3.0 and sections:      # too short to be its own piece of music
+            sections[-1]["end"] = max(sections[-1]["end"], end)
+            continue
+        sections.append({"start": round(start, 3), "end": round(end, 3),
+                         "intensity": int(sec["intensity"]),
+                         "description": " ".join(sec["description"].split()).rstrip(".")})
+    if not sections:
+        sections = [{"start": 0.0, "end": duration, "intensity": 3, "description": ""}]
+    sections[-1]["end"] = duration
+    sections = [s for s in sections if s["end"] - s["start"] > 0.5] or sections[:1]
+    sections[0]["start"], sections[-1]["end"] = 0.0, duration
+    hits = [{"time": round(float(h["time"]), 2), "strength": h["strength"], "what": h["what"]}
+            for h in sorted(cues["hits"], key=lambda h: h["time"]) if 0.3 < h["time"] < duration - 0.2]
+    return {"key": cues["key"].strip(), "sections": sections, "hits": hits[:6]}
+
+
 def clean_plan(plan: dict, shots: list[dict], duration: float) -> dict:
     """Validate the plan and repair anything that would break later steps."""
     plan = SoundPlan.model_validate(plan).model_dump()

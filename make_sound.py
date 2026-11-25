@@ -90,6 +90,17 @@ class Cloud:
         self.claude = result["usage"]
         return result["plan"]
 
+    def cues(self, frames: list[dict], shots: list[dict], duration: float, plan: dict) -> dict:
+        payload = [{"shot": f["shot"], "time": f["time"], "jpeg": Path(f["path"]).read_bytes()}
+                   for f in frames]
+        from modal_app import APP_NAME
+
+        fn = self.modal.Function.from_name(APP_NAME, "plan_cues")
+        result = fn.remote(payload, shots, duration, plan)
+        self.claude = {**result["usage"],
+                       "dollars": round(result["usage"]["dollars"] + self.claude.get("dollars", 0.0), 4)}
+        return result["cues"]
+
     def _collect(self, stream, what: str) -> tuple[np.ndarray, int]:
         import soundfile as sf
 
@@ -117,10 +128,11 @@ class Cloud:
                 candidates=int(C.FOLEY_CANDIDATES)),
             f"effects segment {seg['index']}")
 
-    def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
+    def compose(self, caption: str, bpm: int, seconds: float, keyscale: str = "") -> tuple[np.ndarray, int]:
         return self._collect(
             self.music(model=C.MUSIC_MODEL).generate.remote_gen(
-                caption, bpm, seconds, seed=C.SEED, steps=C.MUSIC_STEPS, guidance=C.MUSIC_GUIDANCE),
+                caption, bpm, seconds, seed=C.SEED, steps=C.MUSIC_STEPS, guidance=C.MUSIC_GUIDANCE,
+                keyscale=keyscale),
             "music")
 
 
@@ -154,7 +166,14 @@ class TestTones:
         swell = 0.6 + 0.4 * np.sin(np.linspace(0, 6 * np.pi, n, dtype=np.float32))
         return (0.4 * noise * swell)[:, None], sr
 
-    def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
+    def cues(self, frames, shots, duration, plan) -> dict:
+        mid = shots[len(shots) // 2]["start"] if len(shots) > 1 else duration / 2
+        return {"key": "A minor",
+                "sections": [{"start": 0.0, "end": mid, "intensity": 2, "description": "test quiet"},
+                             {"start": mid, "end": duration, "intensity": 5, "description": "test loud"}],
+                "hits": [{"time": round(duration * 0.75, 2), "strength": "big", "what": "test hit"}]}
+
+    def compose(self, caption: str, bpm: int, seconds: float, keyscale: str = "") -> tuple[np.ndarray, int]:
         sr = C.SAMPLE_RATE
         t = np.arange(int(seconds * sr), dtype=np.float32) / sr
         root = 220.0 * 2 ** ((C.SEED + len(caption)) % 12 / 12)
@@ -233,10 +252,24 @@ class Cached:
                         *([f"best of {int(C.FOLEY_CANDIDATES)}"] if int(C.FOLEY_CANDIDATES) > 1 else []))
         return self._audio(key, lambda: self.backend.effects(clip, prompt, seg))
 
-    def compose(self, caption: str, bpm: int, seconds: float) -> tuple[np.ndarray, int]:
+    def cues(self, frames, shots, duration, plan) -> dict:
+        jpegs = b"".join(Path(f["path"]).read_bytes() for f in frames)
+        key = self._key("cues", hashlib.sha256(jpegs).hexdigest(), shots, plan, C.PLAN_MODEL,
+                        hashlib.sha256(planning.CUE_SYSTEM.encode()).hexdigest())
+        path = self.folder / f"{key}.cues.json"
+        if path.exists():
+            self.hits += 1
+            return json.loads(path.read_text())
+        self._connect()
+        cues = self.backend.cues(frames, shots, duration, plan)
+        path.write_text(json.dumps(cues, indent=2))
+        return cues
+
+    def compose(self, caption: str, bpm: int, seconds: float, keyscale: str = "") -> tuple[np.ndarray, int]:
         key = self._key("music", caption, bpm, seconds, C.SEED, C.MUSIC_STEPS, C.MUSIC_MODEL,
-                        *([C.MUSIC_GUIDANCE] if "turbo" not in C.MUSIC_MODEL else []))
-        return self._audio(key, lambda: self.backend.compose(caption, bpm, seconds))
+                        *([C.MUSIC_GUIDANCE] if "turbo" not in C.MUSIC_MODEL else []),
+                        *([keyscale] if keyscale else []))
+        return self._audio(key, lambda: self.backend.compose(caption, bpm, seconds, keyscale))
 
 
 # --- The pipeline -----------------------------------------------------------------
@@ -303,8 +336,30 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         bpm, miss = planning.pick_tempo(music_plan["tempo_bpm"], music_plan["cut_times"])
         caption = planning.music_caption(music_plan, music_flavour)
         say(f"    {caption} at {bpm} BPM")
-        raw, sr = backend.compose(caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1))
-        music = mixing.shape_music(raw, sr, duration)
+        cues = None
+        if C.MUSIC_SCORING != "single":
+            cues = planning.clean_cues(backend.cues(frames, shots, duration, plan), shots, duration)
+            for sec in cues["sections"]:
+                say(f"    {sec['start']:.1f}-{sec['end']:.1f}s, intensity {sec['intensity']}: {sec['description']}")
+            for hit in cues["hits"]:
+                say(f"    {hit['strength']} hit at {hit['time']:.1f}s: {hit['what']}")
+        if cues and C.MUSIC_SCORING == "sections":
+            parts = []
+            for sec in cues["sections"]:
+                length = sec["end"] - sec["start"]
+                part_caption = planning.music_caption(
+                    music_plan, ", ".join(x for x in (music_flavour, sec["description"]) if x))
+                raw, sr = backend.compose(part_caption, bpm,
+                                          max(C.MUSIC_MIN_SECONDS, float(np.ceil(length)) + 9.0),
+                                          cues["key"])
+                parts.append(media.to_stereo_48k(raw, sr))
+            music = mixing.join_sections(parts, cues["sections"], duration, bpm)
+            music = mixing.shape_music(music, C.SAMPLE_RATE, duration)
+        else:
+            raw, sr = backend.compose(caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1))
+            music = mixing.shape_music(raw, sr, duration)
+        if cues:
+            music = mixing.shape_to_cues(music, cues)
         music = mixing.set_loudness(music, C.MUSIC_LUFS if speech else C.MUSIC_LUFS_NO_VOICE)
 
         say("5/6 Mixing")
@@ -330,6 +385,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             "segments": [{k: v for k, v in s.items() if k != "audio"} for s in segments],
             "moments": [{k: v for k, v in s.items() if k != "audio"} for s in spots],
             "room": plan["room"],
+            "cues": cues,
             "music": {"caption": caption, "bpm": bpm, "claude_bpm": music_plan["tempo_bpm"],
                       "average_beat_to_cut_seconds": miss},
             "cost": {"gpu_seconds": round(gpu_seconds, 1), "gpu_dollars": round(gpu_dollars, 4),

@@ -131,6 +131,14 @@ def plan_sound(frames: list[dict], shots: list[dict], duration: float, speech: l
     return ask_claude(frames, shots, duration, speech, vibe)
 
 
+@app.function(image=plan_image, secrets=[modal.Secret.from_name(C.CLAUDE_SECRET_NAME)], timeout=600)
+def plan_cues(frames: list[dict], shots: list[dict], duration: float, plan: dict) -> dict:
+    """Ask Claude for the music cue sheet (sections, intensity, hit points)."""
+    from soundlib.planning import ask_cues
+
+    return ask_cues(frames, shots, duration, plan)
+
+
 # --- One-time preparation (CPU, cheap) -------------------------------------------
 
 @app.function(image=foley_image, volumes={WEIGHTS: weights}, timeout=3600)
@@ -275,7 +283,8 @@ class Music:
 
     @modal.method()
     def generate(self, caption: str, bpm: int, duration: float, seed: int = C.SEED,
-                 steps: int = C.MUSIC_STEPS, guidance: float = C.MUSIC_GUIDANCE):
+                 steps: int = C.MUSIC_STEPS, guidance: float = C.MUSIC_GUIDANCE,
+                 keyscale: str = ""):
         """Generate an instrumental track. Streams back FLAC audio."""
         import tempfile
 
@@ -285,7 +294,7 @@ class Music:
         params = GenerationParams(
             task_type="text2music", caption=caption, lyrics="[Instrumental]", instrumental=True,
             bpm=int(bpm), duration=float(duration), inference_steps=steps, seed=seed,
-            guidance_scale=float(guidance),
+            guidance_scale=float(guidance), keyscale=keyscale,
             thinking=False, use_cot_metas=False, use_cot_caption=False, use_cot_language=False,
         )
         config = GenerationConfig(batch_size=1, use_random_seed=False, seeds=[seed],

@@ -185,6 +185,75 @@ def shape_music(data: np.ndarray, sr: int, duration: float) -> np.ndarray:
     return data
 
 
+def _smooth_steps(times: list[float], values: list[float], total: int, ramp: float) -> np.ndarray:
+    """A curve that holds each value from its time on, gliding between them over `ramp` seconds."""
+    sr = C.SAMPLE_RATE
+    xs, ys = [0.0], [values[0]]
+    for t, prev, cur in zip(times[1:], values[:-1], values[1:]):
+        xs += [max(xs[-1], t - ramp / 2), t + ramp / 2]
+        ys += [prev, cur]
+    xs.append(total / sr + 1.0)
+    ys.append(values[-1])
+    return np.interp(np.arange(total) / sr, xs, ys)
+
+
+def shape_to_cues(music: np.ndarray, cues: dict) -> np.ndarray:
+    """Make the music follow the cue sheet: each section at its intensity, and for each
+    hit a dip just before it and an accent that lands on it and fades."""
+    sr, total = C.SAMPLE_RATE, len(music)
+    secs = cues["sections"]
+    curve = _smooth_steps([s["start"] for s in secs],
+                          [C.CUE_INTENSITY_DB[s["intensity"] - 1] for s in secs], total, 0.8)
+    t = np.arange(total) / sr
+    for hit in cues["hits"]:
+        dip, accent = C.CUE_HIT_DIP_DB[hit["strength"]], C.CUE_HIT_ACCENT_DB[hit["strength"]]
+        lead = 0.5 if hit["strength"] == "big" else 0.25
+        before = (t >= hit["time"] - lead) & (t < hit["time"])
+        curve[before] += dip * np.clip((t[before] - (hit["time"] - lead)) / (lead * 0.5), 0.0, 1.0)
+        after = (t >= hit["time"]) & (t < hit["time"] + 1.0)
+        curve[after] += accent * (1.0 - (t[after] - hit["time"]) / 1.0) ** 2
+    return (music * (10 ** (curve / 20))[:, None]).astype(np.float32)
+
+
+def best_start(part: np.ndarray, need: int, bar_seconds: float) -> int:
+    """Where to start reading a generated piece: on a bar line, skipping a weak intro."""
+    sr = C.SAMPLE_RATE
+    probe, best, best_level = int(1.5 * sr), 0, -1.0
+    overall = float(np.sqrt(np.mean(np.square(part, dtype=np.float64)))) + 1e-9
+    for k in range(0, 5):
+        a = int(round(k * bar_seconds * sr))
+        if a + need > len(part):
+            break
+        level = float(np.sqrt(np.mean(np.square(part[a:a + probe], dtype=np.float64)))) / overall
+        if level >= 0.7:          # first bar line where the music is properly under way
+            return a
+        if level > best_level:
+            best, best_level = a, level
+    return best
+
+
+def join_sections(parts: list[np.ndarray], sections: list[dict], duration: float, bpm: int) -> np.ndarray:
+    """Lay separately composed sections on one timeline. Each starts on its cut, on a
+    downbeat; the one before it fades quickly underneath."""
+    sr = C.SAMPLE_RATE
+    total = int(round(duration * sr))
+    out = np.zeros((total, 2), dtype=np.float32)
+    tail, head = int(0.3 * sr), int(0.03 * sr)
+    for part, sec in zip(parts, sections):
+        a = int(round(sec["start"] * sr))
+        need = int(round((sec["end"] - sec["start"]) * sr)) + tail
+        part = set_loudness(part, -20.0)
+        start = best_start(part, need, 4 * 60.0 / bpm)
+        piece = part[start:start + need].copy()
+        if a > 0 and len(piece) > head:
+            piece[:head] *= np.linspace(0.0, 1.0, head, dtype=np.float32)[:, None]
+        n = min(tail, len(piece))
+        piece[-n:] *= np.cos(np.linspace(0, np.pi / 2, n, dtype=np.float32))[:, None]
+        b = min(total, a + len(piece))
+        out[a:b] += piece[: b - a]
+    return out
+
+
 # --- Final mix ---------------------------------------------------------------
 
 def _loudnorm_measure(wav: Path, target_peak: float) -> dict:
