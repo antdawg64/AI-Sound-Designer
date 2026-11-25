@@ -128,7 +128,7 @@
   .fine-note { grid-column: 1 / -1; margin: -2px 0 4px; text-align: center; }
 
   /* Sections under the hero */
-  section.band { padding: 80px 0; border-top: 1px solid var(--line); }
+  section.band { padding: 80px 0; border-top: 1px solid var(--line); scroll-margin-top: 0; }
   .band h2 { font-size: clamp(28px, 3.4vw, 40px); letter-spacing: -0.03em; line-height: 1.1; margin: 0 0 12px; }
   .band .sub { color: var(--muted); font-size: 18px; margin: 0 0 40px; max-width: 620px; }
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
@@ -513,6 +513,14 @@ async function start() {
   show("upload");
   ready();
 }
+// Menu links scroll to their section. (They must not change the address: going back to a
+// job page reloads, and a changed address would look like that.)
+document.querySelectorAll('a[href^="#"]').forEach(a => a.addEventListener("click", e => {
+  const target = document.querySelector(a.getAttribute("href"));
+  if (!target) return;
+  e.preventDefault();
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+}));
 window.addEventListener("popstate", () => location.reload());
 start();
 </script>
