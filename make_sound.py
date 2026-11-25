@@ -319,6 +319,19 @@ class Cached:
 PARTS = ("both", "effects", "music")
 
 
+def _try_lyria(backend, caption: str, bpm: int, cues: dict | None, duration: float):
+    """Music from Google Lyria, or None if Google fails (the run then carries on with
+    the ACE-Step music, so a video never fails because of the outside service)."""
+    prompt = lyria.story_prompt(caption, bpm, cues["key"] if cues else "",
+                                cues["sections"] if cues else [], duration)
+    say(f"    Google Lyria ({C.LYRIA_MODEL}): {prompt}")
+    try:
+        return backend.compose_lyria(prompt, float(duration))
+    except Exception as exc:
+        say(f"    Google Lyria failed ({str(exc)[:200]}); using the ACE-Step music instead")
+        return None
+
+
 def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                vibe: str | None = None, music_flavour: str = "", parts: str = "both") -> dict:
     """parts: "both" (effects and music), "effects" (effects only) or "music" (music only).
@@ -427,13 +440,8 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                 say(f"    {hit['strength']} hit at {hit['time']:.1f}s: {hit['what']}")
         if parts == "effects":
             music = silence
-        elif C.MUSIC_PROVIDER == "lyria":
-            # Lyria composes from words only, so the story goes into the brief itself.
-            prompt = lyria.story_prompt(caption, bpm, cues["key"] if cues else "",
-                                        cues["sections"] if cues else [], duration)
-            say(f"    Google Lyria ({C.LYRIA_MODEL}): {prompt}")
-            raw, sr = backend.compose_lyria(prompt, float(duration))
-            music = mixing.shape_music(raw, sr, duration)
+        elif C.MUSIC_PROVIDER == "lyria" and (lyria_take := _try_lyria(backend, caption, bpm, cues, duration)):
+            music = mixing.shape_music(*lyria_take, duration)
         elif cues and C.MUSIC_SCORING == "sections":
             pieces = []
             for sec in cues["sections"]:
