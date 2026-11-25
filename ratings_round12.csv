@@ -1,0 +1,5 @@
+video,variant,setting,value,rating,note,rated_at
+mitey-vacuum-short-living-room-silent,balanced_steady,(several),"{""sfx_leveling"": ""by_shot"", ""sfx_even_out"": 0.8}",3,,2026-11-25T06:41:00Z
+mitey-vacuum-short-living-room-silent,balanced_louder,(several),"{""sfx_leveling"": ""by_shot"", ""sfx_lufs_no_voice"": -31.0}",3,,2026-11-25T06:41:00Z
+mitey-vacuum-short-living-room-silent,balanced_best4,(several),"{""sfx_leveling"": ""by_shot"", ""spot_candidates"": 4}",3,,2026-11-25T06:41:00Z
+mitey-vacuum-short-living-room-silent,balanced_every_sound,(several),"{""sfx_leveling"": ""by_shot"", ""sfx_prompt_style"": ""short""}",4,,2026-11-25T06:41:00Z

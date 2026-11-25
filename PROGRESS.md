@@ -506,3 +506,10 @@ Page run `20261125-063334`: current, balanced, balanced steady, balanced louder
 sound in the prompts (`sfx_prompt_style: short`).
 
 | 2026-11-25 | Round 12: best-of-4 moments, every-sound prompts | 197 | $0.11 est. |
+
+Round 12 result (`ratings_round12.csv`; current and plain balanced not rated): balanced
+with every planned sound 4, balanced steady 3, balanced louder 3, balanced best-of-4
+moments 3. Applied by hand: `sfx_leveling: by_shot`, `sfx_prompt_style: short`.
+Finished video (the rated tile): 
+`/mnt/project-files/prompt2_tuning/new_defaults/mitey_vacuum_tuned_round12.mp4`.
+Phase 2 Modal spend about $1.70. Phase 3 not started.

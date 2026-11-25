@@ -22,7 +22,7 @@
 
   "effects": {
     "_sfx_prompt_style": "How the effect descriptions are worded for the effects model. detailed = every planned sound; main = only the most important sound; short = every sound, trimmed to a few words each.",
-    "sfx_prompt_style": "main",
+    "sfx_prompt_style": "short",
     "foley_guidance": 6.5,
     "foley_steps": 50,
     "foley_neg_prompt": "noisy, harsh, music, speech, voice, singing",
@@ -44,7 +44,7 @@
     "foley_clip_short_side": 512,
     "foley_clip_max_bytes": 1400000,
     "_sfx_leveling": "by_clip = each generated clip is set to one average level (short sharp sounds end up much louder than steady ones). by_shot = every shot's effects are brought to a level that depends only on how prominent the plan says that shot's main sound should be (shot_level_db), so a sound is louder only when the plan calls for emphasis.",
-    "sfx_leveling": "by_clip",
+    "sfx_leveling": "by_shot",
     "shot_level_db": {"quiet": -10.0, "medium": -5.0, "loud": 0.0},
     "shot_level_max_change_db": 18.0,
     "_sfx_even_out": "0 = leave quiet stretches inside the effects alone, 1 = lift them fully to the typical level (by at most sfx_even_out_max_db), so a sound like the vacuum does not drop away for seconds at a time.",
