@@ -734,3 +734,10 @@ the music on the live site. Defaults are now `music_provider: lyria`,
 `lyria_model: lyria-3-pro-preview`; if Google fails, the run falls back to ACE-Step.
 Going live needs the web app redeployed from a branch that contains this one (the
 editor thread owns that deploy); `ai-sound-designer-lyria` is already deployed.
+
+Added after the round (2026-11-25 22:35 UTC): `stable_layered_pro` (Stable Audio,
+layered, pro mix) scored 3, against 4 for the same with the current effects model. So
+the effects model stays HunyuanVideo-Foley (`sfx_engine: foley`). Stable Audio stays in
+the code as an option; its known weakness is that a continuing sound is made anew for
+every shot. An idea not yet tried: Stable Audio only where the licence blocks the
+current model (EU, UK, South Korea), so those visitors are served instead of refused.
