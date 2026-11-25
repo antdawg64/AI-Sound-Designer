@@ -278,7 +278,7 @@ Read each model's own LICENSE and README. Both match CLAUDE.md.
 
 ## Tuning round, 2026-11-25
 
-From Anthony's ratings in `ratings.csv` (current settings scored 2.0 out of 5):
+From Anthony's ratings in `ratings_round14.csv` (current settings scored 2.0 out of 5):
 
 - `effects_follow_words`: 3.0 (better)
 - `effects_longer_clips`: 3.0 (better)
@@ -329,7 +329,7 @@ page is the same claude.ai page (Sound Tuning Room); copy in
 
 ## Tuning round, 2026-11-25
 
-From Anthony's ratings in `ratings.csv` (current settings scored 2.0 out of 5):
+From Anthony's ratings in `ratings_round14.csv` (current settings scored 2.0 out of 5):
 
 - `all_together`: 2.0 (same)
 - `best_of_three`: 2.0 (same)
@@ -501,7 +501,7 @@ risers at hits, and tempo changes between sections.
 
 ## Tuning round, 2026-11-25
 
-From Anthony's ratings in `ratings.csv` (current settings scored 2.0 out of 5):
+From Anthony's ratings in `ratings_round14.csv` (current settings scored 2.0 out of 5):
 
 - `music_sections`: 4.0 (better)
 - `music_shaped`: 3.0 (better, but another change to the same setting scored higher)
@@ -687,7 +687,7 @@ scratch" and "Round 12 version". Copy:
 
 ## Tuning round, 2026-11-25
 
-From Anthony's ratings in `ratings.csv` (current settings scored 2.0 out of 5):
+From Anthony's ratings in `ratings_round14.csv` (current settings scored 2.0 out of 5):
 
 - `layered`: 3.0 (better)
 - `layered_pro`: 4.0 (better (all its settings applied))
