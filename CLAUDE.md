@@ -74,6 +74,10 @@ Only start a phase when Anthony asks for it.
 - Tune: `python tune.py` runs the variants in `variants.json` and builds the rating page in
   `tuning/`; `--serve` opens it with saving to `ratings.csv`; `--apply` makes the winners
   the new defaults. `python make_sound.py video.mp4 --versions` makes three takes.
+- Second effects model: `modal_stable.py` (Stable Audio Open 1.0, setting `sfx_engine`),
+  with the Modal secret `huggingface-secret` (key `HF_TOKEN`).
+- Trial runs that must not touch the live apps: `SOUND_APP=ai-sound-designer-dev`.
+- What people change in the editor: `soundlib/insights.py`, page `/insights` (owner only).
 - Editor: `web/editor.html` + `soundlib/editor.py` + `soundlib/editor_api.py` (timeline
   to fine-tune a finished job). What people change is kept in the Modal volume
   `ai-sound-designer-tuning-data`; `python analyze_edits.py` turns it into suggested

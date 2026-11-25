@@ -409,6 +409,13 @@ def text_effects(plan: dict, duration: float, backend, layered: bool) -> tuple[l
         role = item.get("role", "main")
         if "time" not in item:                      # background sound or the place: from its real start
             item["audio"] = audio[mixing.onset_sample(audio):]
+            if item.get("text"):
+                # Start a little early and run a little long, so one sound fades into
+                # the next across a cut instead of switching.
+                early = min(0.25, item["clip_start"])
+                item["clip_start"] = round(item["clip_start"] - early, 3)
+                item["clip_end"] = round(min(duration, item["clip_end"] + 0.25,
+                                             item["clip_start"] + len(item["audio"]) / sr), 3)
         elif role == "whoosh":                      # its loudest point lands on the moment
             peak = mixing.peak_sample(audio)
             first = max(0, peak - int(float(C.WHOOSH_BEFORE_SECONDS) * sr))
@@ -423,7 +430,7 @@ def text_effects(plan: dict, duration: float, backend, layered: bool) -> tuple[l
                 item["audio"] = item["audio"][int(round(-item["clip_start"] * sr)):]
                 item["clip_start"] = 0.0
             item["clip_end"] = round(min(duration, item["clip_start"] + len(item["audio"]) / sr), 3)
-    spots = [s for s in spots if len(s["audio"]) > int(0.1 * sr) and s["clip_end"] > s["clip_start"]]
+    spots = [s for s in spots if len(s["audio"]) > int(0.3 * sr) and s["clip_end"] > s["clip_start"]]
     return segments, spots, ambience
 
 

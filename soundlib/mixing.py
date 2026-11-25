@@ -166,9 +166,11 @@ def text_effect_layer(seg: dict, duration: float) -> np.ndarray:
     if level < -80 or not len(audio):
         return out
     audio *= 10 ** ((-24.0 + float(C.SHOT_LEVEL_DB[seg.get("loudness", "medium")]) - level) / 20)
-    fade_in, fade_out = min(int(0.08 * sr), len(audio) // 2), min(int(0.3 * sr), len(audio) // 2)
-    audio[:fade_in] *= np.linspace(0.0, 1.0, fade_in, dtype=np.float32)[:, None]
-    audio[-fade_out:] *= np.linspace(1.0, 0.0, fade_out, dtype=np.float32)[:, None]
+    fade_in, fade_out = min(int(0.4 * sr), len(audio) // 3), min(int(0.5 * sr), len(audio) // 3)
+    if seg["clip_start"] <= 0.01:
+        fade_in = min(fade_in, int(0.03 * sr))
+    audio[:fade_in] *= np.sin(np.linspace(0.0, np.pi / 2, fade_in, dtype=np.float32))[:, None]
+    audio[-fade_out:] *= np.cos(np.linspace(0.0, np.pi / 2, fade_out, dtype=np.float32))[:, None]
     a = int(round(seg["clip_start"] * sr))
     b = min(total, a + len(audio))
     out[a:b] = audio[: b - a]
@@ -742,7 +744,7 @@ def mix(video: Path, sfx_wav: Path, music_wav: Path, voice_wav: Path | None,
     for _ in range(4 if pro else 3):
         got = measure_file(normalised)
         off = C.TARGET_LUFS - got["lufs"]
-        if abs(off) <= 0.3 and got["true_peak_db"] <= peak_target + 0.1:
+        if abs(off) <= (0.15 if pro else 0.3) and got["true_peak_db"] <= peak_target + 0.1:
             break
         if pro:
             extra["gain_db"] = round(extra["gain_db"] + float(off), 2)

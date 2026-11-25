@@ -16,7 +16,10 @@
       "label": "Layered effects, layers further back",
       "settings": {
         "sfx_layering": "layered",
-        "moment_layer_db": {"whoosh": -10.0, "detail": -12.0},
+        "moment_layer_db": {
+          "whoosh": -10.0,
+          "detail": -12.0
+        },
         "ambience_level_db": -22.0
       },
       "why": "The same layers, with the supporting sounds and the room background 4 to 6 dB quieter, in case the first one feels busy."
@@ -36,6 +39,32 @@
         "mix_style": "pro"
       },
       "why": "Both changes together: what the new default would be."
+    },
+    {
+      "id": "stable",
+      "label": "Stable Audio effects",
+      "setting": "sfx_engine",
+      "value": "stable_audio",
+      "why": "Same plan from Claude, but every sound is made from its description by Stable Audio (licensed worldwide) and placed at its planned time, instead of the current model that watches the clip. Every sound is its own clip."
+    },
+    {
+      "id": "stable_layered",
+      "label": "Stable Audio effects, layered",
+      "settings": {
+        "sfx_engine": "stable_audio",
+        "sfx_layering": "layered"
+      },
+      "why": "Stable Audio for every sound, plus the film-style layers: whoosh and detail on key moments and a steady room background."
+    },
+    {
+      "id": "stable_layered_pro",
+      "label": "Stable Audio, layered, pro mix",
+      "settings": {
+        "sfx_engine": "stable_audio",
+        "sfx_layering": "layered",
+        "mix_style": "pro"
+      },
+      "why": "Everything new at once."
     }
   ]
 }

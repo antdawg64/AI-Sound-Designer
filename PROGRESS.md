@@ -2,6 +2,62 @@
 
 _Last updated: 2026-11-25_
 
+## Layered effects, pro mix, Stable Audio, edit insights (2026-11-25, round 14 waiting for ratings)
+
+Branch `claude/project-thread-1d0ddk` (contains the editor branch up to 7eded98). All new
+sound behaviour is behind settings whose defaults are today's sound, so nothing changes
+until Anthony rates round 14 and the winners are applied. **Not deployed to the live
+apps yet** (the live deploy was held back for Anthony's OK).
+
+- **Layered effects** (`sfx_layering: layered`): the planner now gives each key moment
+  up to two supporting layers (a lead-in "whoosh", a "detail" just after) and one
+  `ambience` line for the place. Each layer is generated on its own and is its own clip
+  in the editor (key-moment lane, labelled "Whoosh:" / "Detail:"); the ambience is one
+  quiet clip in its own lane, made from a held frame so nothing happens in it, looped
+  with long crossfades. Levels: `moment_layer_db`, `ambience_level_db`. Extra cost on
+  the vacuum video: $0.03.
+- **Pro mix** (`mix_style: pro`): rumble filters per layer, music and effects both drop
+  while someone talks (music further between 1 and 4 kHz), a guarantee that talking
+  stays `dialogue_min_gap_db` (10 dB) above everything else, then ONE steady gain to
+  -14 LUFS and a 4x-oversampled true-peak limiter (no loudnorm, so no pumping). The
+  `music.wav` / `sfx.wav` downloads are then at their level in the finished video. A
+  new automatic check "talking stays clear" runs when there is talking. The vacuum
+  video has no talking, so that part is proven only by tests (`tests/test_editor.py`)
+  with a stand-in voice. **Needs a test video with talking** to judge by ear.
+- **Stable Audio** (`sfx_engine: stable_audio`): Stable Audio Open 1.0 makes every
+  planned sound from its description; each is lined up with its planned time by
+  listening for where it starts. Own Modal app (`modal_stable.py`), needs the Modal
+  secret `huggingface-secret` (key `HF_TOKEN`; Anthony made it and accepted the model
+  terms on 2026-11-25). Licence read 2026-11-25 (LICENSE.md in the model repo): matches
+  CLAUDE.md. **Before paid use with it:** register at stability.ai/community-license and
+  show "Powered by Stability AI" on the site. Known weakness: it does not watch the
+  video, and a continuing sound (the vacuum) is made anew for every shot. Cost on the
+  vacuum video: about $0.11 for 30 sounds on first run (includes loading the model).
+- **Edit insights**: the analysis moved to `soundlib/insights.py`. The web app gets a
+  Modal function `export_edits` (hands every record over, so `python analyze_edits.py`
+  works from a cloud session with no extra allowed host) and an owner-only page
+  `/insights` with the findings in plain language and downloads (zip of raw records,
+  two spreadsheets). Owner = addresses whose SHA-256 is in `web_admin_email_sha256`.
+  The report now covers layers and ambience, and shows "early signals" before the
+  10-video threshold (never applied automatically). Goes live with the next web deploy.
+- Trial copies on Modal, used for the test runs so the live apps were untouched:
+  `ai-sound-designer-dev` and `ai-sound-designer-dev-stable` (set `SOUND_APP=ai-sound-designer-dev`).
+  They cost nothing while idle and can be deleted any time.
+- **Round 14** on the Sound Tuning Room (run `20261125-r14-layers`): Current, Layered,
+  Layered with layers further back, Layered with pro mix, Stable Audio, Stable Audio
+  layered. Files: `variants.json`. Copies of four finished videos:
+  `/mnt/project-files/round14/`. Next: copy the page's `ratings` rows for that run into
+  `ratings.csv`, `python tune.py --apply`, then deploy (tell the editor thread first).
+
+| 2026-11-25 | Round 14: fresh baseline, layers, pro mix, Stable Audio | 433 | $0.44 |
+
+## Needed from Anthony
+
+- Rate round 14 on the Sound Tuning Room.
+- OK to deploy to the live site (insights page; new sound only after the ratings).
+- A short test video with someone talking, to hear the dialogue handling.
+- If Stable Audio wins: register at stability.ai/community-license before charging.
+
 ## The site is private (2026-11-25)
 
 One shared password in front of every page and API call (`soundlib/gate.py`, sign-in page
