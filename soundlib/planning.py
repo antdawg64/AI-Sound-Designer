@@ -35,10 +35,16 @@ class MusicBrief(BaseModel):
     cut_times: list[float]
 
 
+class MomentLayer(BaseModel):
+    role: Literal["whoosh", "detail"]
+    description: str
+
+
 class Moment(BaseModel):
     time: float
     description: str
     loudness: Literal["quiet", "medium", "loud"]
+    layers: list[MomentLayer] = []
 
 
 Room = Literal["tiny enclosed space", "small room", "medium room", "large room", "hall", "outdoors"]
@@ -50,6 +56,7 @@ class SoundPlan(BaseModel):
     music: MusicBrief
     moments: list[Moment] = []
     room: Room = "medium room"
+    ambience: str = ""
 
 
 SYSTEM = """You are a sound designer planning the audio for a short video. You are shown \
@@ -89,6 +96,21 @@ judged from the frame timestamps), a description of just that one short sound, a
 loudness. Only list moments you can actually see between or in the frames; do not guess. \
 Continuous sounds (a motor, wind, footsteps) belong in the shot effects, not here. \
 At most eight; an empty list is fine.
+
+A film sound editor builds one moment from several sounds. For each key moment, \
+description is the main sound (the hit, snap or click itself), and layers lists up to \
+two supporting sounds, each a single sound on its own:
+- role "whoosh": movement or air just BEFORE the moment that leads into it (a swish, a \
+rush of air, a wind-up, cloth moving fast).
+- role "detail": a small texture just AFTER it (a rattle, bits settling, a short ring, \
+a creak).
+Only add a layer the picture supports, and never repeat the main sound in a layer. A \
+small moment such as a switch or a tap needs no layers.
+
+ambience is the steady background of the place, heard quietly under everything and \
+continuing across the cuts: room tone, air, a distant hum, outdoor air. One short \
+description of that sound alone, with no events in it ("quiet living room tone, faint \
+air conditioning hum"). Do not put the scene's main sound here.
 
 room is the kind of space the sound lives in, from the listener's point of view, used \
 to pick the echo: tiny enclosed space, small room, medium room, large room, hall, or \
@@ -263,9 +285,16 @@ def clean_plan(plan: dict, shots: list[dict], duration: float) -> dict:
     for m in sorted(plan.get("moments") or [], key=lambda m: m["time"]):
         text = " ".join(m["description"].split()).rstrip(".")
         if text and 0.0 <= m["time"] < duration:
+            layers, seen = [], {text.lower()}
+            for layer in m.get("layers") or []:
+                words = " ".join(layer["description"].split()).rstrip(".")
+                if words and words.lower() not in seen and len(layers) < 2:
+                    seen.add(words.lower())
+                    layers.append({"role": layer["role"], "description": words})
             moments.append({"time": round(float(m["time"]), 2), "description": text,
-                            "loudness": m["loudness"]})
+                            "loudness": m["loudness"], "layers": layers})
     plan["moments"] = moments[: C.MAX_MOMENTS]
+    plan["ambience"] = " ".join((plan.get("ambience") or "").split()).rstrip(".")
     music = plan["music"]
     lo, hi = C.MUSIC_BPM_RANGE
     music["tempo_bpm"] = int(min(max(music["tempo_bpm"], lo), hi))

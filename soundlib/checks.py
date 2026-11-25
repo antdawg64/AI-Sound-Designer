@@ -9,7 +9,7 @@ from .media import probe, read_audio
 from .mixing import lufs, measure_file
 
 
-def check_outputs(source: Path, out_dir: Path, parts: str = "both") -> dict:
+def check_outputs(source: Path, out_dir: Path, parts: str = "both", mixed: dict | None = None) -> dict:
     """Check one finished job. Returns {'passed': bool, 'checks': [...]}.
     With parts "effects" or "music", the left-out stem is meant to be silent."""
     checks = []
@@ -35,6 +35,11 @@ def check_outputs(source: Path, out_dir: Path, parts: str = "both") -> dict:
         f"{m['lufs']:.1f} LUFS")
     add("no clipping", m["true_peak_db"] <= C.CHECK_MAX_TRUE_PEAK_DB,
         f"true peak {m['true_peak_db']:.1f} dBTP")
+
+    gap = (mixed or {}).get("dialogue")
+    if gap:   # pro mix with talking: the talking must stay clear of everything else
+        add("talking stays clear", gap["tightest_db"] >= float(C.DIALOGUE_MIN_GAP_DB) - 1.5,
+            f"{gap['typical_db']:.1f} dB above music and effects (tightest {gap['tightest_db']:.1f} dB)")
 
     for name, path, made in (("music stem is not silent", music, parts != "effects"),
                              ("effects stem is not silent", sfx, parts != "music")):

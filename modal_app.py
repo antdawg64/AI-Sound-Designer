@@ -24,7 +24,7 @@ import modal
 
 from soundlib import config as C
 
-APP_NAME = "ai-sound-designer"
+APP_NAME = os.environ.get("SOUND_APP") or "ai-sound-designer"   # SOUND_APP: a separate trial copy
 app = modal.App(APP_NAME)
 
 weights = modal.Volume.from_name("ai-sound-designer-weights", create_if_missing=True)

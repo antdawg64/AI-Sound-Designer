@@ -133,6 +133,48 @@ def balance_shots(sfx: np.ndarray, shots: list[dict]) -> np.ndarray:
     return sfx if curve is None else (sfx * curve[:, None]).astype(np.float32)
 
 
+def onset_sample(audio: np.ndarray, below_peak_db: float = 25.0) -> int:
+    """Where a sound really starts: the first moment it comes within `below_peak_db` of
+    its loudest part (a little earlier, to keep its attack)."""
+    sr = C.SAMPLE_RATE
+    hop = int(0.005 * sr)
+    level = _frame_db(audio.mean(axis=1), hop, int(0.02 * sr))
+    if not len(level) or level.max() < -80:
+        return 0
+    first = int(np.argmax(level > level.max() - below_peak_db))
+    return max(0, first * hop - int(0.015 * sr))
+
+
+def peak_sample(audio: np.ndarray) -> int:
+    """Where a sound is at its loudest (over 50 ms stretches)."""
+    sr = C.SAMPLE_RATE
+    hop = int(0.01 * sr)
+    level = _frame_db(audio.mean(axis=1), hop, int(0.05 * sr))
+    return int(np.argmax(level)) * hop if len(level) else 0
+
+
+def text_effect_layer(seg: dict, duration: float) -> np.ndarray:
+    """One sound made from its description alone, placed at its planned time as a
+    full-length layer, at the level its planned prominence calls for."""
+    sr = C.SAMPLE_RATE
+    total = int(round(duration * sr))
+    out = np.zeros((total, 2), dtype=np.float32)
+    audio = level_clip(seg["audio"])
+    want = int(round((seg["clip_end"] - seg["clip_start"]) * sr))
+    audio = audio[:want].copy()
+    level = _loud_part_db(audio.mean(axis=1))
+    if level < -80 or not len(audio):
+        return out
+    audio *= 10 ** ((-24.0 + float(C.SHOT_LEVEL_DB[seg.get("loudness", "medium")]) - level) / 20)
+    fade_in, fade_out = min(int(0.08 * sr), len(audio) // 2), min(int(0.3 * sr), len(audio) // 2)
+    audio[:fade_in] *= np.linspace(0.0, 1.0, fade_in, dtype=np.float32)[:, None]
+    audio[-fade_out:] *= np.linspace(1.0, 0.0, fade_out, dtype=np.float32)[:, None]
+    a = int(round(seg["clip_start"] * sr))
+    b = min(total, a + len(audio))
+    out[a:b] = audio[: b - a]
+    return out
+
+
 def stitch_effects(segments: list[dict], duration: float) -> np.ndarray:
     """Lay the effect clips on one timeline, crossfading where neighbours overlap.
 
@@ -171,19 +213,63 @@ def stitch_effects(segments: list[dict], duration: float) -> np.ndarray:
 
 
 def _spot_audio(spot: dict) -> np.ndarray:
-    """One exact-moment effect, levelled and faded, ready to lay on the timeline."""
+    """One exact-moment effect, levelled and faded, ready to lay on the timeline.
+
+    A supporting layer has a role: a "whoosh" leads into the moment, so it swells in
+    and is gone just after the moment itself; a "detail" follows it.
+    """
     sr = C.SAMPLE_RATE
     audio = level_clip(spot["audio"])
+    role = spot.get("role", "main")
+    if role == "whoosh":   # keep only the lead-in: the hit itself belongs to the main layer
+        keep = int(round((spot["time"] - spot["clip_start"] + 0.1) * sr))
+        audio = audio[: max(keep, int(0.3 * sr))]
     if C.SFX_LEVELING == "by_shot":
         audio = audio * 10 ** ((-24.0 - _loud_part_db(audio.mean(axis=1))) / 20)
     audio = audio * (10 ** ((spot["gain_db"] + C.SPOT_GAIN_DB) / 20))
     audio = audio.astype(np.float32).copy()
-    fade_in, fade_out = min(int(0.05 * sr), len(audio) // 2), min(int(0.3 * sr), len(audio) // 2)
+    seconds_in, seconds_out = {"whoosh": (0.25, 0.15), "detail": (0.08, 0.4)}.get(role, (0.05, 0.3))
+    fade_in, fade_out = min(int(seconds_in * sr), len(audio) // 2), min(int(seconds_out * sr), len(audio) // 2)
     if fade_in:
         audio[:fade_in] *= np.linspace(0.0, 1.0, fade_in, dtype=np.float32)[:, None]
     if fade_out:
         audio[-fade_out:] *= np.linspace(1.0, 0.0, fade_out, dtype=np.float32)[:, None]
     return audio
+
+
+def ambience_layer(ambience: dict, duration: float) -> np.ndarray:
+    """The steady background of the place, as one full-length layer: the generated
+    stretch is repeated with long crossfades and set well under the other effects."""
+    sr = C.SAMPLE_RATE
+    total = int(round(duration * sr))
+    out = np.zeros((total, 2), dtype=np.float32)
+    clip = level_clip(ambience["audio"])
+    # The model's first and last moments can carry a click or a fade: leave them out.
+    trim = min(int(0.25 * sr), len(clip) // 8)
+    clip = clip[trim: len(clip) - trim]
+    if len(clip) < sr:
+        return out
+    level = _loud_part_db(clip.mean(axis=1))
+    if level < -80:
+        return out
+    clip = clip * 10 ** ((-24.0 + float(C.AMBIENCE_LEVEL_DB) - level) / 20)
+    cross = min(int(float(C.AMBIENCE_CROSSFADE_SECONDS) * sr), len(clip) // 3)
+    step, at = len(clip) - cross, 0
+    up = np.sin(np.linspace(0, np.pi / 2, cross, dtype=np.float32))[:, None]
+    while at < total:
+        piece = clip.copy()
+        if at > 0:
+            piece[:cross] *= up
+        if at + step < total:
+            piece[-cross:] *= up[::-1]
+        b = min(total, at + len(piece))
+        out[at:b] += piece[: b - at]
+        at += step
+    edge = min(int(0.4 * sr), total // 4)
+    if edge:
+        out[:edge] *= np.linspace(0.0, 1.0, edge, dtype=np.float32)[:, None]
+        out[-edge:] *= np.linspace(1.0, 0.0, edge, dtype=np.float32)[:, None]
+    return out
 
 
 def _spot_dip(n: int) -> np.ndarray | None:
@@ -219,10 +305,12 @@ def add_spots(sfx: np.ndarray, spots: list[dict]) -> np.ndarray:
 
 
 def effects_layers(segments: list[dict], spots: list[dict], shot_levels: list[dict] | None,
-                   room: str, duration: float, target_lufs: float) -> list[np.ndarray]:
+                   room: str, duration: float, target_lufs: float,
+                   ambience: dict | None = None) -> list[np.ndarray]:
     """The whole effects track, kept as one full-length layer per effect.
 
-    The layers come back in order (every segment, then every spot) and add up to the
+    The layers come back in order (every segment, then every spot, then the steady
+    background of the place when there is one) and add up to the
     finished effects track: stitched, evened out, balanced shot by shot (when
     shot_levels is given), with the exact-moment effects, the room echo and the final
     loudness. Keeping them apart is what lets the editor move, mute or remove a single
@@ -230,7 +318,8 @@ def effects_layers(segments: list[dict], spots: list[dict], shot_levels: list[di
     """
     sr = C.SAMPLE_RATE
     total = int(round(duration * sr))
-    layers = [stitch_effects([seg], duration) for seg in segments]
+    from_text = [seg for seg in segments if seg.get("text")]
+    layers = [stitch_effects([seg], duration) for seg in segments if not seg.get("text")]
 
     def together() -> np.ndarray:
         out = np.zeros((total, 2), dtype=np.float32)
@@ -244,8 +333,10 @@ def effects_layers(segments: list[dict], spots: list[dict], shot_levels: list[di
                 layers[i] = (layer * curve[:, None]).astype(np.float32)
 
     scale(even_out_curve(together(), float(C.SFX_EVEN_OUT), float(C.SFX_EVEN_OUT_MAX_DB)))
-    if shot_levels is not None:
+    if shot_levels is not None and layers:
         scale(balance_curve(together(), shot_levels))
+    # Sounds made from text are each levelled on their own (order kept: segments first).
+    layers = layers + [text_effect_layer(seg, duration) for seg in from_text]
     for spot in spots:
         audio = _spot_audio(spot)
         a = int(round(spot["clip_start"] * sr))
@@ -259,6 +350,8 @@ def effects_layers(segments: list[dict], spots: list[dict], shot_levels: list[di
             layer[a:b] = audio[: b - a]
         layers.append(layer)
     layers = [add_reverb(layer, room, float(C.SFX_REVERB)) for layer in layers]
+    if ambience is not None:
+        layers.append(ambience_layer(ambience, duration))
     gain = loudness_gain(together(), target_lufs)
     return [(layer * gain).astype(np.float32) for layer in layers]
 
@@ -395,6 +488,154 @@ def join_sections(parts: list[np.ndarray], sections: list[dict], duration: float
     return out
 
 
+# --- Pro mix: making room for talking ----------------------------------------------
+
+def _frame_db(mono: np.ndarray, hop: int, window: int) -> np.ndarray:
+    """Level in dB of `window` samples around every `hop`-th sample."""
+    power = np.concatenate([[0.0], np.cumsum(mono.astype(np.float64) ** 2)])
+    centres = np.arange(0, len(mono), hop)
+    a = np.clip(centres - window // 2, 0, len(mono))
+    b = np.clip(centres + window // 2, 0, len(mono))
+    return 10 * np.log10((power[b] - power[a]) / np.maximum(b - a, 1) + 1e-12)
+
+
+def _glide(values: np.ndarray, hop_seconds: float, rise: float, fall: float) -> np.ndarray:
+    """Smooth a stepped curve: it climbs over about `rise` seconds and drops over `fall`."""
+    up, down = 1 - np.exp(-hop_seconds / max(rise, 1e-4)), 1 - np.exp(-hop_seconds / max(fall, 1e-4))
+    out, now = np.empty_like(values, dtype=np.float64), float(values[0])
+    for i, v in enumerate(values):
+        now += (v - now) * (up if v > now else down)
+        out[i] = now
+    return out
+
+
+def talk_presence(key: np.ndarray) -> np.ndarray | None:
+    """How much someone is talking at every sample, from 0 (not) to 1 (fully), or None
+    when the key sound is silent. It rises a moment BEFORE the words start and lets go
+    slowly after they stop, so nothing lurches."""
+    sr = C.SAMPLE_RATE
+    mono = key.mean(axis=1)
+    if not np.any(np.abs(mono) > 1e-4):
+        return None
+    hop = int(0.01 * sr)
+    level = _frame_db(mono, hop, int(0.03 * sr))
+    top = float(np.percentile(level[level > -70], 90)) if np.any(level > -70) else -70.0
+    on = np.clip((level - (top - 32.0)) / 10.0, 0.0, 1.0)
+    # Hold through the short gaps between words, and look ahead so the bed is already
+    # down when the first word lands.
+    hold, ahead = int(0.25 / 0.01), int(0.2 / 0.01)
+    held = np.array([on[max(0, i - hold): i + ahead + 1].max() for i in range(len(on))])
+    smooth = _glide(held, 0.01, 0.05, 0.35)
+    return np.interp(np.arange(len(mono)), np.arange(len(smooth)) * hop, smooth).astype(np.float32)
+
+
+def _highpass(data: np.ndarray, hz: float) -> np.ndarray:
+    from scipy.signal import butter, sosfiltfilt
+
+    if hz <= 0 or len(data) < 64:
+        return data
+    sos = butter(2, hz, btype="highpass", fs=C.SAMPLE_RATE, output="sos")
+    return sosfiltfilt(sos, data, axis=0).astype(np.float32)
+
+
+def _speech_band(data: np.ndarray) -> np.ndarray:
+    """The part of a sound in the range where speech is understood (1 to 4 kHz), cut
+    out without shifting it in time, so the rest is exactly `data` minus this."""
+    from scipy.signal import fftconvolve, firwin
+
+    taps = firwin(511, [1000.0, 4000.0], pass_zero=False, fs=C.SAMPLE_RATE)
+    return np.stack([fftconvolve(data[:, ch], taps, mode="same") for ch in range(data.shape[1])],
+                    axis=1).astype(np.float32)
+
+
+def make_room(sfx: np.ndarray, music: np.ndarray, presence: np.ndarray | None
+              ) -> tuple[np.ndarray, np.ndarray]:
+    """Effects and music with room made for the talking: both drop while someone talks,
+    the music further in the speech range."""
+    if presence is None:
+        return sfx, music
+    p = presence[:, None]
+    n = min(len(p), len(sfx), len(music))
+    sfx, music, p = sfx[:n], music[:n], p[:n]
+    band = _speech_band(music)
+    wide = 10 ** (-float(C.MUSIC_DUCK_DB) * p / 20)
+    narrow = 10 ** (-float(C.MUSIC_VOICE_BAND_DB) * p / 20)
+    music = ((music - band) * wide + band * wide * narrow).astype(np.float32)
+    sfx = (sfx * 10 ** (-float(C.SFX_DUCK_DB) * p / 20)).astype(np.float32)
+    return sfx, music
+
+
+def dialogue_gap(voice: np.ndarray, bed: np.ndarray, presence: np.ndarray | None) -> dict | None:
+    """How far the talking sits above everything else while someone talks, in dB:
+    the typical gap and the tightest one (the 5th percentile)."""
+    if presence is None:
+        return None
+    sr = C.SAMPLE_RATE
+    hop, window = int(0.05 * sr), int(0.4 * sr)
+    n = min(len(voice), len(bed), len(presence))
+    v = _frame_db(voice[:n].mean(axis=1), hop, window)
+    b = _frame_db(bed[:n].mean(axis=1), hop, window)
+    talking = (presence[:n:hop][: len(v)] > 0.9) & (v > -60)
+    if not np.any(talking):
+        return None
+    gap = (v - b)[talking]
+    return {"typical_db": round(float(np.median(gap)), 1), "tightest_db": round(float(np.percentile(gap, 5)), 1)}
+
+
+def keep_dialogue_clear(voice: np.ndarray, sfx: np.ndarray, music: np.ndarray,
+                        presence: np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
+    """The guarantee: wherever effects plus music still come within DIALOGUE_MIN_GAP_DB
+    of the talking, both are eased down by just enough (18 dB at most)."""
+    if presence is None:
+        return sfx, music
+    sr = C.SAMPLE_RATE
+    hop, window = int(0.05 * sr), int(0.4 * sr)
+    n = min(len(voice), len(sfx), len(music), len(presence))
+    v = _frame_db(voice[:n].mean(axis=1), hop, window)
+    b = _frame_db((sfx[:n] + music[:n]).mean(axis=1), hop, window)
+    talking = (presence[:n:hop][: len(v)] > 0.5) & (v > -60)
+    need = np.where(talking, np.clip(b - (v - float(C.DIALOGUE_MIN_GAP_DB)) + 0.5, 0.0, 18.0), 0.0)
+    if not np.any(need > 0):
+        return sfx, music
+    reach = int(0.3 / 0.05)
+    spread = np.array([need[max(0, i - reach): i + reach + 1].max() for i in range(len(need))])
+    curve = _glide(spread, 0.05, 0.1, 0.3)
+    gain = 10 ** (-np.interp(np.arange(n), np.arange(len(curve)) * hop, curve) / 20)[:, None]
+    sfx, music = sfx.copy(), music.copy()
+    sfx[:n] = sfx[:n] * gain
+    music[:n] = music[:n] * gain
+    return sfx.astype(np.float32), music.astype(np.float32)
+
+
+def pro_premix(sfx: np.ndarray, music: np.ndarray, voice: np.ndarray | None,
+               key: np.ndarray | None, voice_is_talking_only: bool) -> dict:
+    """The pro mix before the final loudness: cleaned layers, room made for talking,
+    and the dialogue guarantee. Returns the three finished layers, their sum and the
+    measured gap between the talking and everything else."""
+    n = min(len(sfx), len(music), *( [len(voice)] if voice is not None else []))
+    sfx, music = sfx[:n], music[:n]
+    hz = C.RUMBLE_HZ
+    sfx, music = _highpass(sfx, float(hz["sfx"])), _highpass(music, float(hz["music"]))
+    presence = talk_presence(key[:n]) if key is not None else None
+    gap = None
+    if voice is not None:
+        # A kept voice loses its rumble; a kept whole soundtrack keeps its bass.
+        voice = _highpass(voice[:n], float(hz["voice"]) if voice_is_talking_only else float(hz["music"]))
+        sfx, music = make_room(sfx, music, presence)
+        if key is not None:
+            sfx, music = keep_dialogue_clear(key[:n], sfx, music, presence)
+            gap = dialogue_gap(key[:n], sfx + music, presence)
+    total = sfx + music + (voice if voice is not None else 0.0)
+    return {"sfx": sfx, "music": music, "voice": voice, "mix": total.astype(np.float32), "dialogue": gap}
+
+
+def preview_music(music: np.ndarray, key: np.ndarray) -> np.ndarray:
+    """What the editor plays for the music in the pro mix: the music with the room for
+    talking already made (that depends only on the talking, so it holds at any volume)."""
+    presence = talk_presence(key)
+    return make_room(np.zeros_like(music), music, presence)[1]
+
+
 # --- Final mix ---------------------------------------------------------------
 
 def _loudnorm_measure(wav: Path, target_peak: float) -> dict:
@@ -404,14 +645,9 @@ def _loudnorm_measure(wav: Path, target_peak: float) -> dict:
     return json.loads(proc.stderr[proc.stderr.rfind("{"): proc.stderr.rfind("}") + 1])
 
 
-def mix(video: Path, sfx_wav: Path, music_wav: Path, voice_wav: Path | None,
-        out_mp4: Path, work: Path, duration: float, duck_key: Path | None | str = "voice") -> dict:
-    """Mix voice, music and effects with ffmpeg and write the final MP4.
-
-    Voice on top, music ducked under the voice with sidechain compression, effects
-    under the voice. Then normalise to -14 LUFS with true peak at -1 dB.
-    """
-    premix = work / "premix.wav"
+def _classic_premix(sfx_wav: Path, music_wav: Path, voice_wav: Path | None,
+                    duck_key: Path | None | str, premix: Path) -> None:
+    """The classic mix before normalisation, made with ffmpeg."""
     inputs = ["-i", sfx_wav, "-i", music_wav]
     chain, sfx, music = [], "[0:a]", "[1:a]"
     if C.MUSIC_DUCK_UNDER_SFX:  # the music dips when the effects get loud
@@ -440,33 +676,86 @@ def mix(video: Path, sfx_wav: Path, music_wav: Path, voice_wav: Path | None,
     run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", graph, "-map", "[out]",
          "-ar", C.SAMPLE_RATE, "-ac", "2", "-c:a", "pcm_f32le", premix])
 
-    # Two-pass loudness normalisation. The peak target leaves room for the small
-    # overshoot that AAC encoding adds, so the finished file stays at or under -1 dBTP.
-    peak_target = C.TARGET_TRUE_PEAK_DB - C.ENCODE_PEAK_MARGIN_DB
-    m = _loudnorm_measure(premix, peak_target)
-    normalised = work / "mix.wav"
-    second_pass = (
-        f"loudnorm=I={C.TARGET_LUFS}:TP={peak_target}:LRA=11:linear=true:"
-        f"measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}:"
-        f"measured_thresh={m['input_thresh']}:offset={m['target_offset']}"
-    )
-    run(["ffmpeg", "-y", "-v", "error", "-i", premix, "-af", second_pass,
-         "-ar", C.SAMPLE_RATE, "-ac", "2", "-c:a", "pcm_s24le", normalised])
 
-    # Safety net: if loudnorm missed the target (it can on very dynamic material),
-    # correct with plain gain and a true-peak limiter.
-    for _ in range(3):
+def mix(video: Path, sfx_wav: Path, music_wav: Path, voice_wav: Path | None,
+        out_mp4: Path, work: Path, duration: float, duck_key: Path | None | str = "voice",
+        deliver: tuple[Path, Path] | None = None) -> dict:
+    """Mix voice, music and effects and write the final MP4.
+
+    MIX_STYLE "classic": voice on top, music ducked under the voice with sidechain
+    compression, effects under the voice, then loudness normalisation.
+    MIX_STYLE "pro": see pro_premix; then one steady gain to the target loudness and a
+    true-peak limiter. With `deliver` (effects path, music path) the two layers are also
+    written as they sit in the finished mix.
+
+    Returns the measured loudness and true peak of the finished file, plus, for pro,
+    the gain used and how far the talking sits above the rest.
+    """
+    premix = work / "premix.wav"
+    peak_target = C.TARGET_TRUE_PEAK_DB - C.ENCODE_PEAK_MARGIN_DB
+    normalised = work / "mix.wav"
+    extra: dict = {"style": C.MIX_STYLE}
+    pro = C.MIX_STYLE == "pro"
+    if pro:
+        same = voice_wav is not None and (duck_key == "voice" or (
+            duck_key is not None and Path(duck_key) == Path(voice_wav)))
+        voice = load_stereo(voice_wav) if voice_wav is not None else None
+        key = voice if same else load_stereo(Path(duck_key)) if duck_key not in (None, "voice") else None
+        parts = pro_premix(load_stereo(sfx_wav), load_stereo(music_wav), voice, key, same)
+        extra["dialogue"] = parts["dialogue"]
+        import soundfile as sf
+
+        sf.write(str(premix), parts["mix"], C.SAMPLE_RATE, subtype="FLOAT")
+        got = measure_file(premix)
+        gain_db = C.TARGET_LUFS - got["lufs"] if np.isfinite(got["lufs"]) else 0.0
+        run(["ffmpeg", "-y", "-v", "error", "-i", premix, "-af", f"volume={gain_db:.3f}dB",
+             "-ar", C.SAMPLE_RATE, "-ac", "2", "-c:a", "pcm_f32le", normalised])
+        extra["gain_db"] = round(float(gain_db), 2)
+    else:
+        _classic_premix(sfx_wav, music_wav, voice_wav, duck_key, premix)
+        # Two-pass loudness normalisation. The peak target leaves room for the small
+        # overshoot that AAC encoding adds, so the finished file stays at or under -1 dBTP.
+        m = _loudnorm_measure(premix, peak_target)
+        second_pass = (
+            f"loudnorm=I={C.TARGET_LUFS}:TP={peak_target}:LRA=11:linear=true:"
+            f"measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}:"
+            f"measured_thresh={m['input_thresh']}:offset={m['target_offset']}"
+        )
+        run(["ffmpeg", "-y", "-v", "error", "-i", premix, "-af", second_pass,
+             "-ar", C.SAMPLE_RATE, "-ac", "2", "-c:a", "pcm_s24le", normalised])
+
+    # The limiter. Pro: it looks at the sound four times finer than the file stores it,
+    # so it catches the peaks between samples, and it reacts fast and lets go fast, which
+    # keeps it inaudible. Classic: the safety net for when loudnorm missed the target.
+    def limit(ceiling_db: float, change_db: float = 0.0) -> None:
+        fixed = work / "mix_fixed.wav"
+        level = 10 ** (ceiling_db / 20)
+        chain = (f"volume={change_db:.2f}dB,aresample={4 * int(C.SAMPLE_RATE)},"
+                 f"alimiter=limit={level:.4f}:level=false:attack=1:release=50,aresample={C.SAMPLE_RATE}"
+                 if pro else
+                 f"volume={change_db:.2f}dB,alimiter=limit={level:.4f}:level=false:attack=5:release=80,"
+                 f"aresample={C.SAMPLE_RATE}")
+        run(["ffmpeg", "-y", "-v", "error", "-i", normalised, "-af", chain,
+             "-ac", "2", "-c:a", "pcm_f32le" if pro else "pcm_s24le", fixed])
+        fixed.replace(normalised)
+
+    for _ in range(4 if pro else 3):
         got = measure_file(normalised)
         off = C.TARGET_LUFS - got["lufs"]
         if abs(off) <= 0.3 and got["true_peak_db"] <= peak_target + 0.1:
             break
-        fixed = work / "mix_fixed.wav"
-        limit = 10 ** (peak_target / 20)
-        run(["ffmpeg", "-y", "-v", "error", "-i", normalised, "-af",
-             f"volume={off:.2f}dB,alimiter=limit={limit:.4f}:level=false:attack=5:release=80,"
-             f"aresample={C.SAMPLE_RATE}",
-             "-ac", "2", "-c:a", "pcm_s24le", fixed])
-        fixed.replace(normalised)
+        if pro:
+            extra["gain_db"] = round(extra["gain_db"] + float(off), 2)
+        limit(peak_target, off)
+
+    if pro and deliver is not None:
+        # The layers as they sit in the finished video (before the limiter touches the
+        # few highest peaks), so the two downloads played together give the same mix.
+        gain = 10 ** (extra["gain_db"] / 20)
+        peak = max(float(np.abs(parts["sfx"]).max(initial=0.0)), float(np.abs(parts["music"]).max(initial=0.0))) * gain
+        gain *= min(1.0, 0.98 / peak) if peak > 0 else 1.0
+        write_audio(deliver[0], parts["sfx"] * gain)
+        write_audio(deliver[1], parts["music"] * gain)
 
     # Put the new sound on the untouched picture. The audio is padded or cut to the
     # exact video length so the output is the same length as the input.
@@ -484,14 +773,9 @@ def mix(video: Path, sfx_wav: Path, music_wav: Path, voice_wav: Path | None,
         if result["true_peak_db"] <= C.TARGET_TRUE_PEAK_DB:
             break
         ceiling -= result["true_peak_db"] - C.TARGET_TRUE_PEAK_DB + 0.3
-        fixed = work / "mix_fixed.wav"
-        run(["ffmpeg", "-y", "-v", "error", "-i", normalised, "-af",
-             f"alimiter=limit={10 ** (ceiling / 20):.4f}:level=false:attack=5:release=80,"
-             f"aresample={C.SAMPLE_RATE}",
-             "-ac", "2", "-c:a", "pcm_s24le", fixed])
-        fixed.replace(normalised)
+        limit(ceiling)
         result = encode()
-    return result
+    return {**result, **extra}
 
 
 def save_stem(path: Path, data: np.ndarray) -> None:

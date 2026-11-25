@@ -40,6 +40,7 @@ from .media import read_audio, run, to_stereo_48k
 FOLDER = "editor"            # inside the job's out/ folder
 MANIFEST = "editor.json"
 STATE = "edit.json"
+MUSIC_STEM = "music_stem.flac"
 EDITED = "edited"            # where render() writes, inside out/
 GAIN_RANGE_DB = (-40.0, 12.0)
 SCHEMA = 2
@@ -61,14 +62,18 @@ def _level_db(data: np.ndarray) -> float:
     return round(20 * np.log10(rms), 1) if rms > 1e-7 else -120.0
 
 
+ROLE_NAMES = {"main": "", "whoosh": "Whoosh: ", "detail": "Detail: "}
+
+
 def build(out_dir: Path, *, segments: list[dict], spots: list[dict], layers: list[np.ndarray],
+          ambience: dict | None = None,
           music: np.ndarray, voice_wav: Path | None, duck_key: Path | None = None,
           kept: str | None = None, shots: list[dict], duration: float,
           plan: dict, caption: str, parts: str, work: Path) -> dict:
     """Save everything the editor needs next to the finished files. Returns the manifest.
 
     `layers` are the full-length effect layers from mixing.effects_layers, in the same
-    order as segments + spots.
+    order as segments + spots (+ the steady background of the place, when there is one).
     """
     sr = C.SAMPLE_RATE
     folder = out_dir / FOLDER
@@ -80,24 +85,38 @@ def build(out_dir: Path, *, segments: list[dict], spots: list[dict], layers: lis
     moments = {round(m["time"], 2): m for m in plan.get("moments", [])}
 
     clips = []
-    for item, layer in zip([*segments, *spots], layers):
+    for item, layer in zip([*segments, *spots, *([ambience] if ambience else [])], layers):
         heard = np.flatnonzero(np.abs(layer).max(axis=1) > 0)
         if not len(heard):
             continue
         a, b = int(heard[0]), int(heard[-1]) + 1
-        is_moment = "time" in item
-        clip_id = f"m{item['index'] - 1000}" if is_moment else f"bg{item['index']}"
+        is_moment, is_ambience = "time" in item, bool(item.get("ambience"))
+        role = item.get("role", "main") if is_moment else None
+        if is_ambience:
+            clip_id = "amb"
+        elif not is_moment:
+            clip_id = f"bg{item['index']}"
+        elif role == "main":
+            clip_id = f"m{item['index'] - 1000}"
+        else:   # a supporting layer of key moment N: mNw0 (whoosh), mNd1 (detail)
+            clip_id = f"m{item['moment']}{role[0]}{item['index'] % 10}"
         _write_flac(folder / f"{clip_id}.flac", layer[a:b])
-        clip = {"id": clip_id, "kind": "moment" if is_moment else "background",
-                "label": item["prompt"], "start": round(a / sr, 6),
+        clip = {"id": clip_id, "kind": "ambience" if is_ambience else "moment" if is_moment else "background",
+                "label": ROLE_NAMES.get(role, "") + item["prompt"], "start": round(a / sr, 6),
                 "duration": round((b - a) / sr, 6), "file": f"{clip_id}.flac",
                 "level_db": _level_db(layer[a:b])}
-        if is_moment:
+        if is_ambience:
+            clip["loudness"] = "quiet"
+        elif is_moment:
             clip["time"] = item["time"]
+            clip["role"] = role
+            clip["moment"] = item.get("moment", item["index"] - 1000)
             clip["loudness"] = moments.get(round(item["time"], 2), {}).get("loudness", "medium")
         else:
             clip["shots"] = item.get("shots") or [item["shot"]]
             clip["loudness"] = max((loudness_of.get(n, "medium") for n in clip["shots"]), key=rank.get)
+            if item.get("loudness"):     # a sound made on its own knows its own prominence
+                clip["loudness"] = item["loudness"]
         clips.append(clip)
 
     # What the browser plays for the music. With a voice, the dip under the voice is
@@ -110,7 +129,9 @@ def build(out_dir: Path, *, segments: list[dict], spots: list[dict], layers: lis
         if duck_key is not None:
             key, ksr = read_audio(duck_key)
             _write_flac(folder / "duck_key.flac", to_stereo_48k(key, ksr))
-            if has_music:
+            if has_music and C.MIX_STYLE == "pro":
+                preview_music = mixing.preview_music(music, to_stereo_48k(key, ksr))
+            elif has_music:
                 mixing.save_stem(work / "editor_music.wav", music)
                 run(["ffmpeg", "-y", "-v", "error", "-i", work / "editor_music.wav", "-i", duck_key,
                      "-filter_complex", f"[0:a][1:a]sidechaincompress={C.DUCK}[out]", "-map", "[out]",
@@ -118,6 +139,11 @@ def build(out_dir: Path, *, segments: list[dict], spots: list[dict], layers: lis
                 preview_music = mixing.load_stereo(work / "editor_ducked.wav")
     if has_music:
         _write_flac(folder / "music.flac", preview_music)
+        # The music as it goes into the mix. render() starts from this, because with the
+        # pro mix the music.wav download is the music as it sits in the finished video.
+        import soundfile as sf
+
+        sf.write(str(folder / MUSIC_STEM), np.clip(music, -1.0, 1.0), sr, format="FLAC", subtype="PCM_24")
 
     # The finished mix is brought to one overall loudness; the browser needs the same
     # push so the preview sounds as loud as the download.
@@ -141,6 +167,7 @@ def build(out_dir: Path, *, segments: list[dict], spots: list[dict], layers: lis
                   "label": "Original audio" if kept == "original" else "Voice from your video",
                   "duck": duck_key is not None} if has_voice else None,
         "preview_gain_db": round(20 * float(np.log10(max(preview_gain, 1e-6))), 2),
+        "mix_style": C.MIX_STYLE,
         "shots": [{"start": s["start"], "end": s["end"]} for s in shots],
         "summary": plan.get("summary", ""),
         "shot_labels": _shot_labels(plan, shots),
@@ -340,7 +367,8 @@ def render(out_dir: Path, video: Path, state: dict) -> dict:
     work = Path(tempfile.mkdtemp(prefix="edit_"))
     try:
         sfx = effects_track(out_dir, manifest, state)
-        music = mixing.load_stereo(out_dir / "music.wav")
+        stem = out_dir / FOLDER / MUSIC_STEM
+        music = mixing.load_stereo(stem if stem.exists() else out_dir / "music.wav")
         music = music * (0.0 if state["music_muted"] else 10 ** (state["music_db"] / 20))
         mixing.save_stem(work / "sfx.wav", sfx)
         mixing.save_stem(work / "music.wav", music.astype(np.float32))
@@ -365,8 +393,15 @@ def render(out_dir: Path, video: Path, state: dict) -> dict:
                  "-movflags", "+faststart", final])
             measured = {"lufs": float("-inf"), "true_peak_db": float("-inf")}
         else:
-            measured = mixing.mix(video, work / "sfx.wav", work / "music.wav", voice, final,
-                                  work, duration, duck_key=duck_key)
+            # Mixed the way the job was made, whatever today's default is.
+            usual = C.MIX_STYLE
+            C.override({"mix_style": manifest.get("mix_style", "classic")})
+            try:
+                measured = mixing.mix(video, work / "sfx.wav", work / "music.wav", voice, final,
+                                      work, duration, duck_key=duck_key,
+                                      deliver=(work / "sfx.wav", work / "music.wav"))
+            finally:
+                C.override({"mix_style": usual})
         target = out_dir / EDITED
         target.mkdir(exist_ok=True)
         for name in ("final.mp4", "sfx.wav", "music.wav"):
@@ -399,6 +434,7 @@ def tuning_record(manifest: dict, state: dict, *, job: dict, report: dict | None
                     and abs(p["out"] - piece["out"]) < 1e-4 for p in first.values())
         clips.append({
             "id": piece["id"], "src": piece["src"], "kind": clip["kind"], "label": piece["label"],
+            "role": clip.get("role"), "moment": clip.get("moment"),
             # ai = as the AI made it; cut = the person cut it; copy = the person duplicated it
             "origin": "cut" if not whole else "ai" if was is not None else "copy",
             "loudness": clip.get("loudness"), "in": piece["in"], "out": piece["out"],

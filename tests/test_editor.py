@@ -114,3 +114,61 @@ def test_background_clips_are_cut_per_shot():
     assert [(p["id"], p["in"], p["out"], p["label"]) for p in pieces] == [
         ("bg0.0", 0.0, 3.0, "hum"), ("bg0.1", 3.0, 7.0, "steps"), ("bg0.2", 7.0, 10.0, "door"),
         ("m0", 0.0, 1.5, "click")]
+
+
+# --- Pro mix ---------------------------------------------------------------------------
+
+def _talking(seconds: float, spans) -> np.ndarray:
+    """A stand-in for a voice: a buzzy tone that is only there during `spans`."""
+    t = np.arange(int(seconds * SR)) / SR
+    tone = sum(np.sin(2 * np.pi * f * t) / k for k, f in enumerate((150, 300, 1200, 2400), start=1))
+    gate = np.zeros_like(t)
+    for a, b in spans:
+        gate[int(a * SR):int(b * SR)] = 1.0
+    return (0.1 * tone * gate)[:, None].repeat(2, axis=1).astype(np.float32)
+
+
+def test_pro_mix_makes_room_only_while_someone_talks():
+    voice = mixing.set_loudness(_talking(DURATION, [(2.0, 4.0)]), C.VOICE_LUFS)
+    music, sfx = _noise(DURATION, 5), _noise(DURATION, 6)
+    presence = mixing.talk_presence(voice)
+    assert presence[: int(1.5 * SR)].max() < 0.05 and presence[int(5.6 * SR):].max() < 0.05
+    assert presence[int(2.0 * SR):int(4.0 * SR)].min() > 0.95      # already down when the words start
+    out_sfx, out_music = mixing.make_room(sfx, music, presence)
+    assert np.allclose(out_music[:SR], music[:SR], atol=1e-4)      # untouched away from the talking
+    level = lambda x: 20 * np.log10(np.sqrt(np.mean(x[int(2.5 * SR):int(3.5 * SR)] ** 2)))
+    assert level(music) - level(out_music) > float(C.MUSIC_DUCK_DB) - 0.5
+    assert abs((level(sfx) - level(out_sfx)) - float(C.SFX_DUCK_DB)) < 0.5
+
+
+def test_pro_mix_guarantees_the_gap_to_the_talking():
+    voice = mixing.set_loudness(_talking(DURATION, [(1.0, 5.0)]), C.VOICE_LUFS)
+    loud_music, loud_sfx = _noise(DURATION, 5), _noise(DURATION, 6)   # far too loud
+    parts = mixing.pro_premix(loud_sfx, loud_music, voice, voice, True)
+    assert parts["dialogue"]["tightest_db"] >= float(C.DIALOGUE_MIN_GAP_DB) - 1.0
+    quiet = mixing.pro_premix(loud_sfx * 0.005, loud_music * 0.005, voice, voice, True)
+    assert quiet["dialogue"]["typical_db"] > 30                     # nothing extra taken off
+
+
+def test_layered_effects_are_separate_clips(tmp_path):
+    segments, spots, levels = _pieces()
+    spots.append({"index": 2000, "time": 2.0, "moment": 0, "role": "whoosh", "prompt": "air rush",
+                  "gain_db": -6.0, "clip_start": 1.0, "clip_end": 2.5, "audio": _noise(1.5, 4)})
+    ambience = {"index": 3000, "ambience": True, "prompt": "room tone", "clip_start": 0.0,
+                "clip_end": 4.0, "audio": _noise(4.0, 8)}
+    layers = mixing.effects_layers(segments, spots, levels, "small room", DURATION, -30.0, ambience=ambience)
+    assert len(layers) == 5
+    whoosh = layers[3]
+    assert not np.any(whoosh[int(2.2 * SR):])                       # gone just after the moment
+    bed = layers[4]
+    assert np.abs(bed[int(1 * SR):int(5 * SR)]).max() > 0           # runs the whole way
+    plan = {"summary": "s", "shots": [], "moments": [{"time": 2.0, "description": "click", "loudness": "loud"}]}
+    manifest = editor.build(tmp_path, segments=segments, spots=spots, ambience=ambience, layers=layers,
+                            music=_noise(DURATION, 9) * 0.1, voice_wav=None, shots=[
+                                {"start": 0.0, "end": 3.0}, {"start": 3.0, "end": 6.0}],
+                            duration=DURATION, plan=plan, caption="music", parts="both", work=tmp_path)
+    kinds = {c["id"]: (c["kind"], c.get("role")) for c in manifest["clips"]}
+    assert kinds["m0"] == ("moment", "main") and kinds["m0w0"] == ("moment", "whoosh")
+    assert kinds["amb"] == ("ambience", None)
+    state = editor.clean_state(None, manifest)
+    assert np.abs(editor.effects_track(tmp_path, manifest, state) - sum(layers)).max() < 2e-4

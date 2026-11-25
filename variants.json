@@ -1,7 +1,41 @@
 {
-  "_about": "Round 13 (2026-11-25): a build from scratch with the current defaults (new plan, new effects, new music, nothing reused), next to the round 12 winner.",
+  "_about": "Round 14 (2026-11-25): film-style layered effects and the pro mix, asked for by Anthony ('do 3 and 5, and 6 for now'). Stable Audio as the effects generator is added to the same page when its model is available. Earlier rounds are in variants_round*.json.",
   "videos": [],
   "vibes": {},
   "include_takes": false,
-  "variants": []
+  "variants": [
+    {
+      "id": "layered",
+      "label": "Layered effects",
+      "setting": "sfx_layering",
+      "value": "layered",
+      "why": "Film style. Each key moment is built from its main sound plus a lead-in whoosh and a small detail made separately, and one quiet steady background of the room runs under the whole video and across the cuts."
+    },
+    {
+      "id": "layered_soft",
+      "label": "Layered effects, layers further back",
+      "settings": {
+        "sfx_layering": "layered",
+        "moment_layer_db": {"whoosh": -10.0, "detail": -12.0},
+        "ambience_level_db": -22.0
+      },
+      "why": "The same layers, with the supporting sounds and the room background 4 to 6 dB quieter, in case the first one feels busy."
+    },
+    {
+      "id": "pro_mix",
+      "label": "Pro mix",
+      "setting": "mix_style",
+      "value": "pro",
+      "why": "Broadcast-style finishing: rumble filtered out, one steady gain to streaming loudness with a true-peak limiter. This video has no talking, so the part that keeps dialogue clear cannot be heard here; expect it to sound very close to Current."
+    },
+    {
+      "id": "layered_pro",
+      "label": "Layered effects with the pro mix",
+      "settings": {
+        "sfx_layering": "layered",
+        "mix_style": "pro"
+      },
+      "why": "Both changes together: what the new default would be."
+    }
+  ]
 }

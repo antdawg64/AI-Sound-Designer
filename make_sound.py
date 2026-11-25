@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -39,7 +40,9 @@ from soundlib.checks import check_outputs
 
 ROOT = Path(__file__).parent
 VIDEO_TYPES = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
-APP_NAME = "ai-sound-designer"   # the Modal app with the AI models (modal_app.py)
+# The Modal app with the AI models (modal_app.py). SOUND_APP names a separate copy, so a
+# trial version can be tried without touching the one the live web page uses.
+APP_NAME = os.environ.get("SOUND_APP") or "ai-sound-designer"
 
 
 def say(text: str) -> None:
@@ -67,6 +70,14 @@ class Cloud:
             "which can take 10 to 20 minutes)...")
         with self.modal.enable_output():
             modal_app.app.deploy()
+            try:   # the second effects model; needs the Hugging Face secret (see modal_stable.py)
+                import modal_stable
+
+                modal_stable.app.deploy()
+            except Exception as exc:
+                say(f"Stable Audio was not installed ({exc}). Everything else is unaffected.")
+            if os.environ.get("SOUND_APP"):   # a trial copy of the models: leave the live page alone
+                return
             web_app.app.deploy()
         say(f"Web page: {web_app.page_url()}")
 
@@ -136,6 +147,25 @@ class Cloud:
                 candidates=int(C.FOLEY_CANDIDATES)),
             f"effects segment {seg['index']}")
 
+    def effects_text(self, asks: list[dict]) -> list[tuple[np.ndarray, int]]:
+        """Sounds from text alone (Stable Audio). asks: {prompt, seconds, seed}."""
+        import soundfile as sf
+
+        model = self.modal.Cls.from_name(APP_NAME + "-stable", "StableAudio")()
+        parts: dict[int, list[bytes]] = {}
+        for item in model.generate.remote_gen(asks, steps=int(C.STABLE_STEPS), guidance=float(C.STABLE_GUIDANCE),
+                                              neg_prompt=C.STABLE_NEG_PROMPT):
+            if "part" in item:
+                parts.setdefault(item["i"], []).append(item["part"])
+            elif item.get("done"):
+                self.gpu_calls.append({"what": f"{len(asks)} effects from text", "gpu": item["gpu"],
+                                       "gpu_seconds": round(item["gpu_seconds"], 2),
+                                       "load_seconds": round(item["load_seconds"], 2)})
+        if len(parts) != len(asks):
+            raise RuntimeError(f"effects from text: asked for {len(asks)} sounds, got {len(parts)}")
+        return [sf.read(io.BytesIO(b"".join(parts[i])), dtype="float32", always_2d=True)
+                for i in range(len(asks))]
+
     def compose(self, caption: str, bpm: int, seconds: float, keyscale: str = "") -> tuple[np.ndarray, int]:
         return self._collect(
             self.music(model=C.MUSIC_MODEL).generate.remote_gen(
@@ -162,7 +192,11 @@ class TestTones:
                 {"start": s["start"], "end": s["end"], "description": "test noise",
                  "loudness": ("quiet", "medium", "loud")[s["index"] % 3]}]} for s in shots],
             "moments": [{"time": round(duration * f, 2), "description": f"test moment {n}",
-                         "loudness": "loud"} for n, f in enumerate((0.2, 0.5, 0.8), start=1)],
+                         "loudness": "loud",
+                         "layers": [{"role": "whoosh", "description": f"test whoosh {n}"},
+                                    {"role": "detail", "description": f"test detail {n}"}][: n % 3]}
+                        for n, f in enumerate((0.2, 0.5, 0.8), start=1)],
+            "ambience": "test room tone",
             "music": {"mood": vibe or "test", "genre": "test tone", "tempo_bpm": 110,
                       "instruments": ["sine wave"], "cut_times": []},
         }
@@ -175,6 +209,14 @@ class TestTones:
         noise = np.convolve(noise, np.ones(24, dtype=np.float32) / 24, mode="same")
         swell = 0.6 + 0.4 * np.sin(np.linspace(0, 6 * np.pi, n, dtype=np.float32))
         return (0.4 * noise * swell)[:, None], sr
+
+    def effects_text(self, asks: list[dict]) -> list[tuple[np.ndarray, int]]:
+        made = []
+        for ask in asks:   # a short silence first, like a real model that does not start at once
+            seg = {"index": ask["seed"] - C.SEED, "clip_start": 0.0, "clip_end": ask["seconds"] - 0.2}
+            noise, sr = self.effects(None, ask["prompt"], seg)
+            made.append((np.concatenate([np.zeros((int(0.2 * sr), 1), dtype=np.float32), noise]), sr))
+        return made
 
     def compose_scored(self, caption, bpm, seconds, keyscale, sections):
         return self.compose(caption + str(len(sections)), bpm, seconds)
@@ -265,6 +307,19 @@ class Cached:
                         *([f"best of {int(C.FOLEY_CANDIDATES)}"] if int(C.FOLEY_CANDIDATES) > 1 else []))
         return self._audio(key, lambda: self.backend.effects(clip, prompt, seg))
 
+    def effects_text(self, asks: list[dict]) -> list[tuple[np.ndarray, int]]:
+        import soundfile as sf
+
+        keys = [self._key("stable", a["prompt"], a["seconds"], a["seed"], C.STABLE_STEPS,
+                          C.STABLE_GUIDANCE, C.STABLE_NEG_PROMPT) for a in asks]
+        missing = [i for i, k in enumerate(keys) if not (self.folder / f"{k}.flac").exists()]
+        self.hits += len(asks) - len(missing)
+        if missing:
+            self._connect()
+            for i, (data, sr) in zip(missing, self.backend.effects_text([asks[i] for i in missing])):
+                sf.write(self.folder / f"{keys[i]}.flac", data, sr, format="FLAC", subtype="PCM_24")
+        return [sf.read(self.folder / f"{k}.flac", dtype="float32", always_2d=True) for k in keys]
+
     def compose_scored(self, caption, bpm, seconds, keyscale, sections):
         key = self._key("scored", caption, bpm, seconds, keyscale, sections, C.SEED, C.MUSIC_STEPS,
                         C.MUSIC_MODEL, C.MUSIC_GUIDANCE)
@@ -293,6 +348,83 @@ class Cached:
 # --- The pipeline -----------------------------------------------------------------
 
 PARTS = ("both", "effects", "music")
+
+
+def text_effects(plan: dict, duration: float, backend, layered: bool) -> tuple[list, list, dict | None]:
+    """Every planned sound made from its description alone (sfx_engine stable_audio) and
+    lined up with its planned time. Returns (background sounds, key-moment sounds, the
+    steady background of the place or None), shaped like the video-driven ones.
+
+    A model that works from text does not know when in its clip the sound should
+    start, so each result is lined up by listening to it: a background sound and a
+    moment start where the sound really begins, and a whoosh is placed so that its
+    loudest point lands on the moment.
+    """
+    sr = C.SAMPLE_RATE
+    rank = {"quiet": 0, "medium": 1, "loud": 2}
+    # The same sound carrying on into the next shot is made once, as one long sound.
+    sounds: list[dict] = []
+    for fx in sorted(({**fx, "shot": s["shot"]} for s in plan["shots"] for fx in s["effects"]),
+                     key=lambda f: f["start"]):
+        earlier = next((m for m in reversed(sounds) if m["description"].lower() == fx["description"].lower()
+                        and abs(m["end"] - fx["start"]) < 0.25), None)
+        if earlier:
+            earlier["end"] = fx["end"]
+            earlier["shots"].append(fx["shot"])
+            earlier["loudness"] = max(earlier["loudness"], fx["loudness"], key=rank.get)
+        else:
+            sounds.append({**fx, "shots": [fx["shot"]]})
+    segments, spots, asks = [], [], []
+
+    def ask(item: dict, seconds: float) -> None:
+        asks.append({"prompt": item["prompt"], "seconds": round(float(seconds), 2), "seed": C.SEED + item["index"]})
+
+    for k, fx in enumerate(sounds):
+        length = min(46.0, max(1.0, fx["end"] - fx["start"]))
+        segments.append({"index": k, "shot": fx["shots"][0], "shots": sorted(set(fx["shots"])),
+                         "start": fx["start"], "end": fx["end"], "clip_start": fx["start"],
+                         "clip_end": round(min(duration, fx["start"] + length), 3),
+                         "prompt": fx["description"], "loudness": fx["loudness"], "gain_db": 0.0, "text": True})
+        ask(segments[-1], length + 0.5)
+    if C.PLAN_DETAIL == "close":
+        for i, m in enumerate(plan["moments"]):
+            spots.append({"index": 1000 + i, "time": m["time"], "prompt": m["description"],
+                          "gain_db": C.LOUDNESS_DB[m["loudness"]]})
+            ask(spots[-1], C.STABLE_MOMENT_SECONDS)
+            for j, layer in enumerate(m.get("layers") or [] if layered else []):
+                spots.append({"index": 2000 + 10 * i + j, "time": m["time"], "moment": i, "role": layer["role"],
+                              "prompt": layer["description"],
+                              "gain_db": C.LOUDNESS_DB[m["loudness"]] + float(C.MOMENT_LAYER_DB[layer["role"]])})
+                ask(spots[-1], C.STABLE_MOMENT_SECONDS)
+    ambience = None
+    if layered and plan.get("ambience"):
+        ambience = {"index": 3000, "ambience": True, "prompt": plan["ambience"],
+                    "clip_start": 0.0, "clip_end": float(C.AMBIENCE_SECONDS)}
+        ask(ambience, float(C.AMBIENCE_SECONDS) + 0.5)
+    for a in asks:
+        say(f"    {a['prompt']}")
+    made = [media.to_stereo_48k(audio, rate) for audio, rate in backend.effects_text(asks)] if asks else []
+
+    for item, audio in zip([*segments, *spots, *([ambience] if ambience else [])], made):
+        role = item.get("role", "main")
+        if "time" not in item:                      # background sound or the place: from its real start
+            item["audio"] = audio[mixing.onset_sample(audio):]
+        elif role == "whoosh":                      # its loudest point lands on the moment
+            peak = mixing.peak_sample(audio)
+            first = max(0, peak - int(float(C.WHOOSH_BEFORE_SECONDS) * sr))
+            item["audio"] = audio[first: peak + int(0.1 * sr)]
+            item["clip_start"] = round(item["time"] - (peak - first) / sr, 3)
+        else:                                       # the moment itself, or a detail just after it
+            first = mixing.onset_sample(audio)
+            item["audio"] = audio[first: first + int(1.5 * sr)]
+            item["clip_start"] = round(item["time"] + (0.05 if role == "detail" else -0.015), 3)
+        if "time" in item:
+            if item["clip_start"] < 0:              # would start before the video does
+                item["audio"] = item["audio"][int(round(-item["clip_start"] * sr)):]
+                item["clip_start"] = 0.0
+            item["clip_end"] = round(min(duration, item["clip_start"] + len(item["audio"]) / sr), 3)
+    spots = [s for s in spots if len(s["audio"]) > int(0.1 * sr) and s["clip_end"] > s["clip_start"]]
+    return segments, spots, ambience
 
 
 def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
@@ -345,15 +477,20 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         say(f"    {plan['summary']}")
 
         say("3/6 Generating sound effects" if parts != "music" else "3/6 Skipping sound effects (music only)")
-        segments = media.plan_segments(shots, duration) if parts != "music" else []
+        from_text = C.SFX_ENGINE == "stable_audio" and parts != "music"
+        segments = media.plan_segments(shots, duration) if parts != "music" and not from_text else []
         spots = []
-        for seg in segments:
+        layered = C.SFX_LAYERING == "layered"
+        text_ambience = None
+        if from_text:
+            segments, spots, text_ambience = text_effects(plan, duration, backend, layered)
+        for seg in segments if not from_text else []:
             seg["prompt"], seg["gain_db"] = planning.segment_prompt(plan, seg)
             clip = media.cut_clip(video, seg, work / f"clip{seg['index']:03d}.mp4")
             say(f"    {seg['start']:.1f}-{seg['end']:.1f}s: {seg['prompt']}")
             audio, sr = backend.effects(clip, seg["prompt"], seg)
             seg["audio"] = media.to_stereo_48k(audio, sr)
-        if C.PLAN_DETAIL == "close" and parts != "music":
+        if C.PLAN_DETAIL == "close" and parts != "music" and not from_text:
             for i, m in enumerate(plan["moments"]):
                 spot = {"index": 1000 + i, "time": m["time"], "prompt": m["description"],
                         "gain_db": C.LOUDNESS_DB[m["loudness"]],
@@ -371,6 +508,35 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                     C.override({"foley_candidates": usual})
                 spot["audio"] = media.to_stereo_48k(audio, sr)
                 spots.append(spot)
+                # Film-style layering: the supporting sounds of this moment, each made
+                # on its own so it is its own clip (a whoosh leading in, a detail after).
+                for j, layer in enumerate(m.get("layers") or [] if layered else []):
+                    before = float(C.WHOOSH_BEFORE_SECONDS) if layer["role"] == "whoosh" else 0.1
+                    after = 0.5 if layer["role"] == "whoosh" else 1.4
+                    extra = {"index": 2000 + 10 * i + j, "time": m["time"], "moment": i,
+                             "role": layer["role"], "prompt": layer["description"],
+                             "gain_db": C.LOUDNESS_DB[m["loudness"]] + float(C.MOMENT_LAYER_DB[layer["role"]]),
+                             "clip_start": round(max(0.0, m["time"] - before), 3),
+                             "clip_end": round(min(duration, m["time"] + after), 3)}
+                    if extra["clip_end"] - extra["clip_start"] < 0.8:
+                        continue
+                    clip = media.cut_clip(video, extra, work / f"spot{i:03d}_{j}.mp4")
+                    say(f"      {layer['role']}: {layer['description']}")
+                    audio, sr = backend.effects(clip, extra["prompt"], extra)
+                    extra["audio"] = media.to_stereo_48k(audio, sr)
+                    spots.append(extra)
+        # The steady background of the place, one stretch made from a held frame of the
+        # longest shot (nothing moves, so nothing happens in it) and run under everything.
+        ambience = text_ambience
+        if layered and parts != "music" and plan.get("ambience") and not from_text:
+            longest = max(shots, key=lambda s: s["end"] - s["start"])
+            ambience = {"index": 3000, "ambience": True, "prompt": plan["ambience"],
+                        "clip_start": 0.0, "clip_end": float(C.AMBIENCE_SECONDS)}
+            clip = media.still_clip(video, (longest["start"] + longest["end"]) / 2,
+                                    float(C.AMBIENCE_SECONDS), work / "ambience.mp4")
+            say(f"    background of the place: {plan['ambience']}")
+            audio, sr = backend.effects(clip, ambience["prompt"], ambience)
+            ambience["audio"] = media.to_stereo_48k(audio, sr)
         # Every effect is kept as its own layer (they add up to the effects track), so
         # the editor can move, mute or remove one effect afterwards.
         layers, sfx = [], silence
@@ -383,7 +549,8 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                 shot_levels = [{"start": s["start"], "end": s["end"],
                                 "loudness": by_shot.get(s["index"], "medium")} for s in shots]
             layers = mixing.effects_layers(segments, spots, shot_levels, plan["room"], duration,
-                                           under_original or (C.SFX_LUFS if voice_wav else C.SFX_LUFS_NO_VOICE))
+                                           under_original or (C.SFX_LUFS if voice_wav else C.SFX_LUFS_NO_VOICE),
+                                           ambience=ambience)
             sfx = silence.copy()
             for layer in layers:
                 sfx += layer
@@ -437,15 +604,19 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         say("5/6 Mixing")
         mixing.save_stem(out_dir / "sfx.wav", sfx)
         mixing.save_stem(out_dir / "music.wav", music)
-        mixing.mix(video, out_dir / "sfx.wav", out_dir / "music.wav", voice_wav,
-                   out_dir / "final.mp4", work, duration, duck_key=duck_key)
-
-        editor.build(out_dir, segments=segments, spots=spots, layers=layers, music=music,
+        # Built first: the editor keeps the layers as they are before the final mix.
+        editor.build(out_dir, segments=segments, spots=spots, ambience=ambience, layers=layers, music=music,
                      voice_wav=voice_wav, duck_key=duck_key, kept=kept, shots=shots, duration=duration, plan=plan,
                      caption=caption, parts=parts, work=work)
+        mixed = mixing.mix(video, out_dir / "sfx.wav", out_dir / "music.wav", voice_wav,
+                           out_dir / "final.mp4", work, duration, duck_key=duck_key,
+                           deliver=(out_dir / "sfx.wav", out_dir / "music.wav"))
+        if mixed.get("dialogue"):
+            say(f"    talking sits {mixed['dialogue']['typical_db']:.0f} dB above the music and effects "
+                f"(tightest moment {mixed['dialogue']['tightest_db']:.0f} dB)")
 
         say("6/6 Checking the result")
-        result = check_outputs(video, out_dir, parts)
+        result = check_outputs(video, out_dir, parts, mixed)
         for check in result["checks"]:
             say(f"    {'PASS' if check['passed'] else 'FAIL'}  {check['name']}: {check['detail']}")
 
@@ -460,6 +631,8 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             "shots": shots, "speech": speech, "kept_audio": kept,
             "segments": [{k: v for k, v in s.items() if k != "audio"} for s in segments],
             "moments": [{k: v for k, v in s.items() if k != "audio"} for s in spots],
+            "ambience": {k: v for k, v in ambience.items() if k != "audio"} if ambience else None,
+            "mix": {k: v for k, v in mixed.items() if k in ("style", "gain_db", "dialogue", "lufs", "true_peak_db")},
             "room": plan["room"],
             "cues": cues,
             "music": {"caption": caption, "bpm": bpm, "claude_bpm": music_plan["tempo_bpm"],

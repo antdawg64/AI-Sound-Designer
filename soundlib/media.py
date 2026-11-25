@@ -242,3 +242,18 @@ def cut_clip(path: str | Path, seg: dict, out: Path) -> Path:
         if out.stat().st_size <= C.FOLEY_CLIP_MAX_BYTES:
             return out
     raise RuntimeError(f"Could not shrink clip {seg['index']} below the upload limit")
+
+
+def still_clip(path: str | Path, at: float, seconds: float, out: Path) -> Path:
+    """A silent clip that holds one frame of the video for `seconds`. Given to the
+    effects model with a description, it yields a steady background sound for the place
+    with nothing happening in it."""
+    s = C.FOLEY_CLIP_SHORT_SIDE
+    scale = f"scale='if(gt(iw,ih),-2,{s})':'if(gt(iw,ih),{s},-2)'"
+    frame = out.with_suffix(".png")
+    run(["ffmpeg", "-y", "-v", "error", "-ss", f"{at:.3f}", "-i", path, "-frames:v", "1",
+         "-vf", scale, frame])
+    run(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-framerate", "25", "-i", frame,
+         "-t", f"{seconds:.3f}", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+         "-pix_fmt", "yuv420p", out])
+    return out
