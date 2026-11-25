@@ -337,11 +337,28 @@ def mix(video: Path, sfx_wav: Path, music_wav: Path, voice_wav: Path | None,
 
     # Put the new sound on the untouched picture. The audio is padded or cut to the
     # exact video length so the output is the same length as the input.
-    run(["ffmpeg", "-y", "-v", "error", "-i", video, "-i", normalised,
-         "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
-         "-af", f"apad,atrim=0:{duration:.4f}", "-c:a", "aac", "-b:a", C.AAC_BITRATE,
-         "-ar", C.SAMPLE_RATE, "-t", f"{duration:.4f}", "-movflags", "+faststart", out_mp4])
-    return measure_file(out_mp4)
+    def encode() -> dict:
+        run(["ffmpeg", "-y", "-v", "error", "-i", video, "-i", normalised,
+             "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
+             "-af", f"apad,atrim=0:{duration:.4f}", "-c:a", "aac", "-b:a", C.AAC_BITRATE,
+             "-ar", C.SAMPLE_RATE, "-t", f"{duration:.4f}", "-movflags", "+faststart", out_mp4])
+        return measure_file(out_mp4)
+
+    # Heavily limited peaks can overshoot by more than the margin once encoded. If the
+    # finished file is over the peak target, limit harder by the excess and encode again.
+    result, ceiling = encode(), peak_target
+    for _ in range(3):
+        if result["true_peak_db"] <= C.TARGET_TRUE_PEAK_DB:
+            break
+        ceiling -= result["true_peak_db"] - C.TARGET_TRUE_PEAK_DB + 0.3
+        fixed = work / "mix_fixed.wav"
+        run(["ffmpeg", "-y", "-v", "error", "-i", normalised, "-af",
+             f"alimiter=limit={10 ** (ceiling / 20):.4f}:level=false:attack=5:release=80,"
+             f"aresample={C.SAMPLE_RATE}",
+             "-ac", "2", "-c:a", "pcm_s24le", fixed])
+        fixed.replace(normalised)
+        result = encode()
+    return result
 
 
 def save_stem(path: Path, data: np.ndarray) -> None:

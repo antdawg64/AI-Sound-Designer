@@ -418,3 +418,20 @@ Page run `20261125-050613`: current (sections, own instruments), same band, one 
 same band, one piece joins kept, one piece gentle (3 s glide).
 
 | 2026-11-25 | Round 9: shared instruments, kept joins, slow glide | 75 | $0.04 est. |
+
+Round 9 result (`ratings_round9.csv`): same band 1, one piece same band 3 ("audio
+leveling is bad, its not smooth. but i like the same instruments"), joins kept 1,
+gentle 1. Current tile not rated, so nothing applied. Leaving the joins unrewritten made
+it worse. The roughness he hears is the volume, not the composition.
+
+## Round 10 (2026-11-25): volume handling, waiting for Anthony's ratings
+
+All tiles are repaint + shared instruments; only the level shaping differs (all free,
+cached): as round 9, no dips or accents at hits, no dips plus a small intensity range
+with a 2 s glide, no added shaping at all, and no shaping plus `music_even_out` 0.7.
+Page run `20261125-052304`.
+
+Bug fixed on the way: with effects about 20 dB below full scale the master limiter works
+hard, and the AAC encode then overshot to +0.9 dBTP on one tile. `mixing.mix` now checks
+the encoded file and limits harder if it is over the peak target. Worth testing later:
+that heavy limiting on effect spikes may itself make the music pump.

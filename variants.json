@@ -1,33 +1,45 @@
 {
-  "_about": "Round 9 (2026-11-25): still smoother music (Anthony after round 8: 'Better, but not smooth enough still'). Earlier rounds are in variants_round*.json.",
+  "_about": "Round 10 (2026-11-25): the volume changes are what sounds rough (Anthony on round 9: 'audio leveling is bad, its not smooth. but i like the same instruments'). All tiles are one continuous piece with the same instruments; only how the volume is handled differs. Earlier rounds are in variants_round*.json.",
   "videos": [],
   "vibes": {},
   "include_takes": false,
   "variants": [
     {
-      "id": "same_band",
-      "label": "Sections, all played by the same instruments",
-      "setting": "section_instruments",
-      "value": "shared",
-      "why": "Until now each section had its own instruments, so every change sounded like a different band walking in. Here the instruments stay the same and only the energy changes."
-    },
-    {
-      "id": "one_piece_same_band",
-      "label": "One continuous piece, same instruments throughout",
+      "id": "as_round9",
+      "label": "One piece, same instruments (the one you scored 3)",
       "settings": {"music_scoring": "repaint", "section_instruments": "shared"},
-      "why": "The one-piece version from last round, but each rewritten section keeps the same instruments."
+      "why": "For reference. The volume steps between sections and dips sharply before each big moment."
     },
     {
-      "id": "one_piece_joins_kept",
-      "label": "One continuous piece, joins left untouched",
-      "settings": {"music_scoring": "repaint", "section_instruments": "shared", "repaint_keep_seconds": 1.0},
-      "why": "As above, and the second on each side of every change is left exactly as first composed, so the music plays straight through the change."
+      "id": "no_dips",
+      "label": "No dips before big moments",
+      "settings": {"music_scoring": "repaint", "section_instruments": "shared",
+                   "cue_hit_dip_db": {"small": 0.0, "big": 0.0}, "cue_hit_accent_db": {"small": 0.0, "big": 0.0}},
+      "why": "The sudden drop-outs and bumps around the big moments are removed. The volume still rises and falls by section."
     },
     {
-      "id": "one_piece_gentle",
-      "label": "One continuous piece, joins untouched, volume glides slowly",
-      "settings": {"music_scoring": "repaint", "section_instruments": "shared", "repaint_keep_seconds": 1.0, "cue_ramp_seconds": 3.0},
-      "why": "As above, and the volume takes three seconds to move between sections instead of under one."
+      "id": "gentle_levels",
+      "label": "No dips, and only small volume changes",
+      "settings": {"music_scoring": "repaint", "section_instruments": "shared",
+                   "cue_hit_dip_db": {"small": 0.0, "big": 0.0}, "cue_hit_accent_db": {"small": 0.0, "big": 0.0},
+                   "cue_intensity_db": [-4.0, -3.0, -2.0, -1.0, 0.0], "cue_ramp_seconds": 2.0},
+      "why": "Quiet sections are only slightly quieter than loud ones, and the volume glides over two seconds."
+    },
+    {
+      "id": "hands_off",
+      "label": "Volume left exactly as the music model played it",
+      "settings": {"music_scoring": "repaint", "section_instruments": "shared",
+                   "cue_hit_dip_db": {"small": 0.0, "big": 0.0}, "cue_hit_accent_db": {"small": 0.0, "big": 0.0},
+                   "cue_intensity_db": [0.0, 0.0, 0.0, 0.0, 0.0]},
+      "why": "No volume changes are added at all. The rise and fall comes only from how the music itself is written."
+    },
+    {
+      "id": "evened",
+      "label": "Volume evened out",
+      "settings": {"music_scoring": "repaint", "section_instruments": "shared",
+                   "cue_hit_dip_db": {"small": 0.0, "big": 0.0}, "cue_hit_accent_db": {"small": 0.0, "big": 0.0},
+                   "cue_intensity_db": [0.0, 0.0, 0.0, 0.0, 0.0], "music_even_out": 0.7},
+      "why": "No added volume changes, and the music's own loud and quiet stretches are pulled closer together."
     }
   ]
 }
