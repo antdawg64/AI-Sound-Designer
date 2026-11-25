@@ -313,15 +313,29 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             f"{'has' if info['has_audio'] else 'no'} existing audio")
 
         shots = media.detect_shots(video, duration)
-        speech, voice_wav = [], None
+        # Sound already in the video. Asking for only music or only effects keeps all of
+        # it (the person's own effects or music stay), and the editor shows it as
+        # "Original audio". Asking for both keeps only the talking, as the new effects
+        # and music replace the rest. duck_key: what the music dips under (the talking).
+        speech, voice_wav, duck_key, kept = [], None, None, None
         if info["has_audio"]:
             original = media.extract_audio(video, work / "original.wav", duration)
             speech = media.detect_speech(original)
-            if speech:
-                data, sr = media.read_audio(original)
-                voice = mixing.set_loudness(media.gate_to_speech(data, speech, sr), C.VOICE_LUFS)
-                voice_wav = work / "voice.wav"
-                media.write_audio(voice_wav, voice)
+            data, sr = media.read_audio(original)
+            talking = mixing.set_loudness(media.gate_to_speech(data, speech, sr), C.VOICE_LUFS) if speech else None
+            if parts != "both" and mixing.lufs(media.to_stereo_48k(data, sr)) > C.CHECK_SILENT_LUFS:
+                kept, voice_wav = "original", work / "voice.wav"
+                media.write_audio(voice_wav, mixing.set_loudness(media.to_stereo_48k(data, sr), C.VOICE_LUFS))
+                if talking is not None:
+                    duck_key = work / "duck_key.wav"
+                    media.write_audio(duck_key, talking)
+            elif talking is not None:
+                kept, voice_wav = "voice", work / "voice.wav"
+                media.write_audio(voice_wav, talking)
+                duck_key = voice_wav
+        # Kept original sound with no talking in it (their own effects or music): the new
+        # sound sits just under it instead of far below, as it would under a voice.
+        under_original = C.VOICE_LUFS - 6.0 if kept == "original" and not speech else None
         say(f"    {len(shots)} shot(s); speech in {len(speech)} place(s)")
 
         say("2/6 Planning the sound with Claude")
@@ -369,7 +383,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                 shot_levels = [{"start": s["start"], "end": s["end"],
                                 "loudness": by_shot.get(s["index"], "medium")} for s in shots]
             layers = mixing.effects_layers(segments, spots, shot_levels, plan["room"], duration,
-                                           C.SFX_LUFS if speech else C.SFX_LUFS_NO_VOICE)
+                                           under_original or (C.SFX_LUFS if voice_wav else C.SFX_LUFS_NO_VOICE))
             sfx = silence.copy()
             for layer in layers:
                 sfx += layer
@@ -418,16 +432,16 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         if cues:
             music = mixing.shape_to_cues(music, cues)
         if parts != "effects":
-            music = mixing.set_loudness(music, C.MUSIC_LUFS if speech else C.MUSIC_LUFS_NO_VOICE)
+            music = mixing.set_loudness(music, under_original or (C.MUSIC_LUFS if voice_wav else C.MUSIC_LUFS_NO_VOICE))
 
         say("5/6 Mixing")
         mixing.save_stem(out_dir / "sfx.wav", sfx)
         mixing.save_stem(out_dir / "music.wav", music)
         mixing.mix(video, out_dir / "sfx.wav", out_dir / "music.wav", voice_wav,
-                   out_dir / "final.mp4", work, duration)
+                   out_dir / "final.mp4", work, duration, duck_key=duck_key)
 
         editor.build(out_dir, segments=segments, spots=spots, layers=layers, music=music,
-                     voice_wav=voice_wav, shots=shots, duration=duration, plan=plan,
+                     voice_wav=voice_wav, duck_key=duck_key, kept=kept, shots=shots, duration=duration, plan=plan,
                      caption=caption, parts=parts, work=work)
 
         say("6/6 Checking the result")
@@ -443,7 +457,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             "test_tones_only": isinstance(getattr(backend, "backend", backend), TestTones),
             "vibe": vibe, "music_flavour": music_flavour, "parts": parts, "settings": C.current(),
             "passed": result["passed"], "checks": result["checks"],
-            "shots": shots, "speech": speech,
+            "shots": shots, "speech": speech, "kept_audio": kept,
             "segments": [{k: v for k, v in s.items() if k != "audio"} for s in segments],
             "moments": [{k: v for k, v in s.items() if k != "audio"} for s in spots],
             "room": plan["room"],

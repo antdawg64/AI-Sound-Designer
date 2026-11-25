@@ -604,3 +604,14 @@ scratch" and "Round 12 version". Copy:
 `/mnt/project-files/prompt2_tuning/new_defaults/mitey_vacuum_fresh_build.mp4`.
 
 | 2026-11-25 | Round 13: full fresh build | 143 | $0.28 |
+
+## Original audio is kept for music-only and effects-only runs (Nov 25, 2026)
+
+- Asking for only music or only effects now keeps the whole sound the video came with
+  (before, only talking was kept and the rest was dropped). It is in the finished video
+  and shows in the editor as an "Original audio" track with its own volume and Mute.
+- Asking for both still keeps only the talking, because the new effects and music
+  replace the rest. That track ("Voice") now has volume and Mute too.
+- If the kept sound has no talking, the new music or effects sit 6 dB under it; with
+  talking they sit under the voice as before and the music dips under the talking.
+- Tested free with test tones on the vacuum video (music only and effects only).

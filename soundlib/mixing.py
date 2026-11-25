@@ -405,7 +405,7 @@ def _loudnorm_measure(wav: Path, target_peak: float) -> dict:
 
 
 def mix(video: Path, sfx_wav: Path, music_wav: Path, voice_wav: Path | None,
-        out_mp4: Path, work: Path, duration: float) -> dict:
+        out_mp4: Path, work: Path, duration: float, duck_key: Path | None | str = "voice") -> dict:
     """Mix voice, music and effects with ffmpeg and write the final MP4.
 
     Voice on top, music ducked under the voice with sidechain compression, effects
@@ -418,11 +418,22 @@ def mix(video: Path, sfx_wav: Path, music_wav: Path, voice_wav: Path | None,
         chain.append("[0:a]asplit=2[sfx][sfxkey]")
         chain.append(f"[1:a][sfxkey]sidechaincompress={C.DUCK_UNDER_SFX}[m1]")
         sfx, music = "[sfx]", "[m1]"
+    # duck_key: what the music dips under. "voice" = the voice track itself; a file = that
+    # sound (the talking, when the voice track is the video's whole original audio);
+    # None = the music does not dip.
     if voice_wav is not None:
         inputs += ["-i", voice_wav]
-        chain.append("[2:a]asplit=2[voice][key]")
-        chain.append(f"{music}[key]sidechaincompress={C.DUCK}[m2]")
-        chain.append(f"{sfx}[m2][voice]amix=inputs=3:normalize=0:duration=longest[out]")
+        if duck_key is None:
+            chain.append(f"{sfx}{music}[2:a]amix=inputs=3:normalize=0:duration=longest[out]")
+        else:
+            if duck_key == "voice" or Path(duck_key) == Path(voice_wav):
+                chain.append("[2:a]asplit=2[voice][key]")
+                voice, key = "[voice]", "[key]"
+            else:
+                inputs += ["-i", duck_key]
+                voice, key = "[2:a]", "[3:a]"
+            chain.append(f"{music}{key}sidechaincompress={C.DUCK}[m2]")
+            chain.append(f"{sfx}[m2]{voice}amix=inputs=3:normalize=0:duration=longest[out]")
     else:
         chain.append(f"{sfx}{music}amix=inputs=2:normalize=0:duration=longest[out]")
     graph = ";".join(chain)

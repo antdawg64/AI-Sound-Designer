@@ -62,7 +62,8 @@ def _level_db(data: np.ndarray) -> float:
 
 
 def build(out_dir: Path, *, segments: list[dict], spots: list[dict], layers: list[np.ndarray],
-          music: np.ndarray, voice_wav: Path | None, shots: list[dict], duration: float,
+          music: np.ndarray, voice_wav: Path | None, duck_key: Path | None = None,
+          kept: str | None = None, shots: list[dict], duration: float,
           plan: dict, caption: str, parts: str, work: Path) -> dict:
     """Save everything the editor needs next to the finished files. Returns the manifest.
 
@@ -104,15 +105,17 @@ def build(out_dir: Path, *, segments: list[dict], spots: list[dict], layers: lis
     has_music, has_voice = parts != "effects", voice_wav is not None
     preview_music = music
     if has_voice:
-        shutil.copyfile(voice_wav, work / "editor_voice.wav")
         voice, vsr = read_audio(voice_wav)
         _write_flac(folder / "voice.flac", to_stereo_48k(voice, vsr))
-        if has_music:
-            mixing.save_stem(work / "editor_music.wav", music)
-            run(["ffmpeg", "-y", "-v", "error", "-i", work / "editor_music.wav", "-i", voice_wav,
-                 "-filter_complex", f"[0:a][1:a]sidechaincompress={C.DUCK}[out]", "-map", "[out]",
-                 "-ar", C.SAMPLE_RATE, "-ac", "2", "-c:a", "pcm_f32le", work / "editor_ducked.wav"])
-            preview_music = mixing.load_stereo(work / "editor_ducked.wav")
+        if duck_key is not None:
+            key, ksr = read_audio(duck_key)
+            _write_flac(folder / "duck_key.flac", to_stereo_48k(key, ksr))
+            if has_music:
+                mixing.save_stem(work / "editor_music.wav", music)
+                run(["ffmpeg", "-y", "-v", "error", "-i", work / "editor_music.wav", "-i", duck_key,
+                     "-filter_complex", f"[0:a][1:a]sidechaincompress={C.DUCK}[out]", "-map", "[out]",
+                     "-ar", C.SAMPLE_RATE, "-ac", "2", "-c:a", "pcm_f32le", work / "editor_ducked.wav"])
+                preview_music = mixing.load_stereo(work / "editor_ducked.wav")
     if has_music:
         _write_flac(folder / "music.flac", preview_music)
 
@@ -133,7 +136,10 @@ def build(out_dir: Path, *, segments: list[dict], spots: list[dict], layers: lis
         "schema": SCHEMA, "duration": round(duration, 4), "parts": parts,
         "has_music": has_music, "has_voice": has_voice,
         "music": {"file": "music.flac", "label": caption} if has_music else None,
-        "voice": {"file": "voice.flac"} if has_voice else None,
+        # The sound kept from the video itself: all of it ("original") or only the talking ("voice").
+        "voice": {"file": "voice.flac", "kind": kept or "voice",
+                  "label": "Original audio" if kept == "original" else "Voice from your video",
+                  "duck": duck_key is not None} if has_voice else None,
         "preview_gain_db": round(20 * float(np.log10(max(preview_gain, 1e-6))), 2),
         "shots": [{"start": s["start"], "end": s["end"]} for s in shots],
         "summary": plan.get("summary", ""),
@@ -251,6 +257,8 @@ def clean_state(state: dict | None, manifest: dict) -> dict:
         "music_db": round(_number(state.get("music_db"), lo, hi, 0.0), 2),
         "effects_muted": bool(state.get("effects_muted")),
         "music_muted": bool(state.get("music_muted")),
+        "voice_db": round(_number(state.get("voice_db"), lo, hi, 0.0), 2) if manifest["has_voice"] else 0.0,
+        "voice_muted": bool(state.get("voice_muted")) and manifest["has_voice"],
         "pieces": pieces,
     }
 
@@ -264,7 +272,8 @@ def _same(a: dict, b: dict) -> bool:
 def is_changed(state: dict, manifest: dict) -> bool:
     first = initial_pieces(manifest)
     return bool(state["effects_db"] or state["music_db"] or state["effects_muted"]
-                or state["music_muted"] or len(first) != len(state["pieces"])
+                or state["music_muted"] or state["voice_db"] or state["voice_muted"]
+                or len(first) != len(state["pieces"])
                 or not all(_same(a, b) for a, b in zip(first, state["pieces"])))
 
 
@@ -335,9 +344,20 @@ def render(out_dir: Path, video: Path, state: dict) -> dict:
         music = music * (0.0 if state["music_muted"] else 10 ** (state["music_db"] / 20))
         mixing.save_stem(work / "sfx.wav", sfx)
         mixing.save_stem(work / "music.wav", music.astype(np.float32))
-        voice = out_dir / FOLDER / "voice.flac" if manifest["has_voice"] else None
+        voice, duck_key = None, None
+        voice_on = manifest["has_voice"] and not state["voice_muted"]
+        if manifest["has_voice"]:
+            # A muted voice track goes in as silence, so the music still dips under the
+            # talking exactly as it does in the editor's preview.
+            voice = work / "voice.wav"
+            kept = mixing.load_stereo(out_dir / FOLDER / "voice.flac")
+            kept = kept * (10 ** (state["voice_db"] / 20) if voice_on else 0.0)
+            mixing.save_stem(voice, kept.astype(np.float32))
+            key = out_dir / FOLDER / "duck_key.flac"
+            wants = (manifest.get("voice") or {}).get("duck", True)
+            duck_key = key if key.exists() else out_dir / FOLDER / "voice.flac" if wants else None
         final = work / "final.mp4"
-        silent = not manifest["has_voice"] and not (np.any(np.abs(sfx) > 1e-5) or np.any(np.abs(music) > 1e-5))
+        silent = not voice_on and not (np.any(np.abs(sfx) > 1e-5) or np.any(np.abs(music) > 1e-5))
         if silent:   # everything is muted: nothing to bring to a loudness, so just add silence
             run(["ffmpeg", "-y", "-v", "error", "-i", video, "-f", "lavfi", "-i",
                  f"anullsrc=r={sr}:cl=stereo", "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
@@ -346,7 +366,7 @@ def render(out_dir: Path, video: Path, state: dict) -> dict:
             measured = {"lufs": float("-inf"), "true_peak_db": float("-inf")}
         else:
             measured = mixing.mix(video, work / "sfx.wav", work / "music.wav", voice, final,
-                                  work, duration)
+                                  work, duration, duck_key=duck_key)
         target = out_dir / EDITED
         target.mkdir(exist_ok=True)
         for name in ("final.mp4", "sfx.wav", "music.wav"):
@@ -400,7 +420,9 @@ def tuning_record(manifest: dict, state: dict, *, job: dict, report: dict | None
         "summary": manifest.get("summary", ""),
         "music": (report.get("music") or {}) | {"label": (manifest.get("music") or {}).get("label")},
         "settings": report.get("settings") or C.current(),
-        "mix": {k: state[k] for k in ("effects_db", "music_db", "effects_muted", "music_muted")},
+        "kept_audio": (manifest.get("voice") or {}).get("kind") if manifest["has_voice"] else None,
+        "mix": {k: state[k] for k in ("effects_db", "music_db", "effects_muted", "music_muted",
+                                      "voice_db", "voice_muted")},
         "clips": clips, "events": kept, "renders": int(renders),
         "changed": is_changed(state, manifest),
     }

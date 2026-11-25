@@ -105,6 +105,8 @@ def analyze(jobs: list[dict], min_jobs: int) -> tuple[list[dict], list[dict], li
             "renders": job["renders"], "events": len(job["events"]),
             "effects_db": mix["effects_db"], "music_db": mix["music_db"],
             "effects_muted": mix["effects_muted"], "music_muted": mix["music_muted"],
+            "kept_audio": job.get("kept_audio"), "original_db": mix.get("voice_db", 0.0),
+            "original_muted": mix.get("voice_muted", False),
             "music_vs_effects_db": round(mix["music_db"] - fx_change, 2),
             "clips": len(job["clips"]),
             "cut_by_person": sum(c.get("origin") == "cut" for c in job["clips"]),

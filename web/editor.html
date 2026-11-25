@@ -225,7 +225,7 @@ const JOB = (location.pathname.match(/^\/edit\/([A-Za-z0-9]+)/) || [])[1] || "";
 const API = "/api/edit/" + JOB;
 const SESSION = Array.from(crypto.getRandomValues(new Uint8Array(9)), b => b.toString(36).padStart(2, "0")).join("");
 const OPENED = Date.now();
-const ROW = { moment: 30, background: 40, music: 54, voice: 36, ruler: 26, gap: 4 };
+const ROW = { moment: 30, background: 40, music: 54, voice: 54, ruler: 26, gap: 4 };
 const VOL = { min: -24, max: 12, step: 0.5 };
 const EDGE = 0.005, MIN_PIECE = 0.05, MAX_ROWS = 4;   // EDGE: half the fade at a cut (same as the server)
 
@@ -266,8 +266,8 @@ const ctx = new AC({ latencyHint: "interactive" });
 const master = ctx.createGain(), limiter = ctx.createDynamicsCompressor();
 limiter.threshold.value = -2; limiter.knee.value = 0; limiter.ratio.value = 20;
 limiter.attack.value = 0.003; limiter.release.value = 0.12;
-const fxBus = ctx.createGain(), musicBus = ctx.createGain();
-fxBus.connect(master); musicBus.connect(master); master.connect(limiter); limiter.connect(ctx.destination);
+const fxBus = ctx.createGain(), musicBus = ctx.createGain(), voiceBus = ctx.createGain();
+fxBus.connect(master); musicBus.connect(master); voiceBus.connect(master); master.connect(limiter); limiter.connect(ctx.destination);
 const pieceGain = {};     // piece id -> its volume node
 let playing = false, startedAt = 0, startedFrom = 0, position = 0;
 let sources = {};         // key -> the nodes of a sound that is playing or scheduled
@@ -281,6 +281,7 @@ function applyGains() {
   const t = ctx.currentTime;
   fxBus.gain.setTargetAtTime(S.effects_muted ? 0 : gainOf(S.effects_db), t, 0.015);
   musicBus.gain.setTargetAtTime(S.music_muted ? 0 : gainOf(S.music_db), t, 0.015);
+  voiceBus.gain.setTargetAtTime(S.voice_muted ? 0 : gainOf(S.voice_db), t, 0.015);
   for (const p of S.pieces) gainNode(p.id).gain.setTargetAtTime(p.muted || p.deleted ? 0 : gainOf(p.gain_db), t, 0.015);
 }
 function stopSource(key) {
@@ -321,7 +322,7 @@ function scheduleAll() {
   Object.keys(sources).forEach(stopSource);
   for (const p of S.pieces) schedulePiece(p);
   if (M.has_music) schedule("music", buffers.music, 0, buffers.music.duration, 0, musicBus);
-  if (M.has_voice) schedule("voice", buffers.voice, 0, buffers.voice.duration, 0, master);
+  if (M.has_voice) schedule("voice", buffers.voice, 0, buffers.voice.duration, 0, voiceBus);
 }
 async function play(from) {
   if (ctx.state !== "running") await ctx.resume();
@@ -383,9 +384,10 @@ function drawPlayhead() {
 // ---------------------------------------------------------------- the edit, undo, saving
 const copyOf = x => JSON.parse(JSON.stringify(x));
 function freshState(saved) {
-  const s = { effects_db: 0, music_db: 0, effects_muted: false, music_muted: false, pieces: copyOf(FIRST) };
+  const s = { effects_db: 0, music_db: 0, effects_muted: false, music_muted: false,
+              voice_db: 0, voice_muted: false, pieces: copyOf(FIRST) };
   if (saved) {
-    for (const k of ["effects_db", "music_db", "effects_muted", "music_muted"]) if (k in saved) s[k] = saved[k];
+    for (const k of ["effects_db", "music_db", "effects_muted", "music_muted", "voice_db", "voice_muted"]) if (k in saved) s[k] = saved[k];
     if (Array.isArray(saved.pieces)) s.pieces = copyOf(saved.pieces).filter(p => byId[p.src]);
   }
   return s;
@@ -517,7 +519,7 @@ function buildTimeline() {
     if (!has(key)) continue;
     const b = el("button", "clip " + key); b.dataset.id = key;
     b.appendChild(el("canvas"));
-    b.appendChild(el("span", "label", key === "music" ? "Music: " + (M.music.label || "") : "Voice from your video"));
+    b.appendChild(el("span", "label", key === "music" ? "Music: " + (M.music.label || "") : (M.voice.label || "Voice from your video")));
     b.style.height = ROW[key] + "px"; b.style.top = ROW.gap + "px";
     if (key === "music") b.addEventListener("click", () => select("music")); else b.tabIndex = -1;
     laneOf[key].appendChild(b);
@@ -547,9 +549,9 @@ function drawClips() {
   for (const key of ["music", "voice"]) {
     const node = laneOf[key] && laneOf[key].querySelector(".clip"); if (!node) continue;
     node.style.left = "0px"; node.style.width = (M.duration * pps) + "px";
-    node.classList.toggle("off", key === "music" && S.music_muted);
+    node.classList.toggle("off", S[key + "_muted"]);
     node.classList.toggle("selected", selected === key);
-    drawWave(node.firstChild, key, cssColor("--" + key), key === "music" ? clamp(gainOf(S.music_db), 0.15, 1.6) : 1);
+    drawWave(node.firstChild, key, cssColor("--" + key), clamp(gainOf(S[key + "_db"]), 0.15, 1.6));
   }
   for (const kind of ["moment", "background"]) if (laneOf[kind]) laneOf[kind].querySelectorAll(".clip").forEach(n => n.remove());
   for (const p of S.pieces) {
@@ -612,7 +614,14 @@ function drawHeads() {
   if (M.has_voice) {
     const h = el("div", "head"); h.style.height = (laneHeight("voice") + 1) + "px";
     const t = el("div", "title"); const dot = el("span", "dot"); dot.style.background = "var(--voice)";
-    t.appendChild(dot); t.appendChild(el("span", null, "Voice")); h.appendChild(t);
+    const whole = M.voice.kind === "original";
+    t.appendChild(dot); t.appendChild(el("span", null, whole ? "Original audio" : "Voice"));
+    const m = el("button", S.voice_muted ? "on" : "", S.voice_muted ? "Muted" : "Mute");
+    m.addEventListener("click", () => { S.voice_muted = !S.voice_muted; commit("voice_mute", { to: S.voice_muted }); });
+    t.appendChild(m); h.appendChild(t);
+    h.appendChild(slider(S.voice_db, v => { S.voice_db = v; applyGains(); },
+      v => { S.voice_db = v; commit("voice_volume", { to: v }); },
+      whole ? "Volume of the sound your video came with" : "Volume of the voice from your video"));
     heads.appendChild(h);
   }
 }
