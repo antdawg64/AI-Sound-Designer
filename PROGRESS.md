@@ -57,7 +57,6 @@ opens a timeline editor (`/edit/<job id>`, desktop first).
   allowed (added) to test the page; reading the jobs volume from here is blocked
   (`clobber.modal-storage.com`), so check results through the page's own downloads.
 
-_Last updated: 2026-11-24_
 
 ## Where things stand
 
