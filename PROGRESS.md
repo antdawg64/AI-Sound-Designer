@@ -286,3 +286,39 @@ with effects at -34. Not tried yet: the model's own LM planner ("thinking" mode)
 
 | 2026-11-25 | Rounds 3 and 4 (mix only, all cached) | 0 | $0 |
 | 2026-11-25 | XL music model downloads (CPU) and round 5 run | 62 | $0.03 est. plus cents of CPU |
+
+## Tuning round, 2026-11-25
+
+From Anthony's ratings in `ratings.csv` (current settings scored 1.0 out of 5):
+
+- `effects_up_a_step`: 3.0 (better)
+- `music_bigger_model`: 3.0 (better)
+- `music_bigger_model_slow`: 4.0 (better (all its settings applied))
+
+New defaults written to `settings.json`:
+
+- `sfx_lufs_no_voice`: `-38` to `-34`
+- `music_model`: `acestep-v15-turbo` to `acestep-v15-xl-sft`
+- `music_steps`: `8` to `50`
+
+Anthony's notes:
+
+- `music_bigger_model_slow`: now music is too loud though
+
+Round 5 outcome: XL music in slow mode scored 4 (XL turbo 3, old model 1), so
+`music_model` is `acestep-v15-xl-sft` with `music_steps` 50. Effects one step louder
+scored 3 against 1, so `sfx_lufs_no_voice` is -34. Anthony's note on the XL slow tile:
+"now music is too loud though".
+
+## Round 6 (2026-11-25): music level, waiting for Anthony's ratings
+
+Music lowered 3 dB on that note (`music_lufs_no_voice` -26 to -29). Free page run
+`20261125-041548`: current (-29), -32, -34 (level with effects), and -26 for
+reference. The with-voice levels (`sfx_lufs` -37, `music_lufs` -30) were moved by hand
+to keep the same balance and have never been heard on a video with speech.
+
+Worth knowing: the final mix is always brought to -14 LUFS, so with no voice only the
+gap between music and effects matters, not the numbers themselves. Round by round the
+preferred gap has moved from effects 8 dB above music to effects about 5 dB below it.
+`tune.py --apply` now keeps winning single changes alongside a winning combination,
+unless they touch the same setting.

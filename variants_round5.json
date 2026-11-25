@@ -1,0 +1,28 @@
+{
+  "_about": "Round 5 (2026-11-25): better music quality, using the bigger ACE-Step 1.5 XL models (MIT). Earlier rounds are in variants_round*.json.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "music_bigger_model",
+      "label": "Bigger music model",
+      "setting": "music_model",
+      "value": "acestep-v15-xl-turbo",
+      "why": "The same kind of music from a model twice the size, built for higher audio quality."
+    },
+    {
+      "id": "music_bigger_model_slow",
+      "label": "Bigger music model, slow and careful",
+      "settings": {"music_model": "acestep-v15-xl-sft", "music_steps": 50},
+      "why": "The big model in its high-quality mode: 50 refining passes instead of 8. Takes a few seconds longer."
+    },
+    {
+      "id": "effects_up_a_step",
+      "label": "Effects one step louder",
+      "setting": "sfx_lufs_no_voice",
+      "value": -34.0,
+      "why": "A check on the effects: your three winners from last round are now combined, which may be too quiet. This brings them up 4 dB."
+    }
+  ]
+}

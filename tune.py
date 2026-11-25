@@ -309,17 +309,19 @@ def decide(rows: list[dict]) -> dict:
         if row.get("verdict") == "better" and row["setting"] != COMBO \
                 and winners.get(row["setting"]) is not row:
             row["verdict"] = "better, but another change to the same setting scored higher"
-    # A combination wins outright when it beats the current settings and scores at least
-    # as high as every single change; then all of its settings become the defaults.
+    # A combination that beats the current settings has all of its settings applied,
+    # unless a single change to one of those same settings scored higher. Winning single
+    # changes to other settings are kept alongside it.
     combos = [r for r in table if r.get("setting") == COMBO and r["verdict"] == "better"]
     if combos:
         top = max(combos, key=lambda r: r["score"])
-        if all(top["score"] >= w["score"] for w in winners.values()):
-            winners = {name: {**top, "setting": name, "value": value}
-                       for name, value in top["value"].items()}
-            top["verdict"] = "better (best overall, all its settings applied)"
+        clash = [w for name, w in winners.items() if name in top["value"]]
+        if all(top["score"] >= w["score"] for w in clash):
+            for name, value in top["value"].items():
+                winners[name] = {**top, "setting": name, "value": value}
+            top["verdict"] = "better (all its settings applied)"
         else:
-            top["verdict"] = "better, but a single change scored higher"
+            top["verdict"] = "better, but a single change to one of its settings scored higher"
     return {"table": table, "winners": winners,
             "baseline": round(sum(base.values()) / len(base), 2) if base else None,
             "takes": [r for r in rows if r["variant"].startswith("take_") and r.get("rating")]}

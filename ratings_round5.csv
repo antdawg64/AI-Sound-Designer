@@ -1,0 +1,5 @@
+video,variant,setting,value,rating,note,rated_at
+mitey-vacuum-short-living-room-silent,current,,,1,,2026-11-25T04:13:54Z
+mitey-vacuum-short-living-room-silent,music_bigger_model,music_model,"""acestep-v15-xl-turbo""",3,,2026-11-25T04:14:00Z
+mitey-vacuum-short-living-room-silent,music_bigger_model_slow,(several),"{""music_model"":""acestep-v15-xl-sft"",""music_steps"":50}",4,now music is too loud though,2026-11-25T04:15:18Z
+mitey-vacuum-short-living-room-silent,effects_up_a_step,sfx_lufs_no_voice,-34,3,,2026-11-25T04:13:35Z
