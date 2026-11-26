@@ -78,7 +78,7 @@
     "moment_timing": "planned",
     "moment_pin_window": 0.5,
     "moment_pin_long_side": 384,
-    "moment_pin_reach": 0.5,
+    "moment_pin_reach": 1.0,
     "_sfx_pan": "How far a sound moves left or right to match where its source is on screen, 0 (all in the middle) to 1 (hard left or right).",
     "sfx_pan": 0.0,
     "_sfx_layering": "single = one effect per key moment, as before. layered = film-style: each key moment is built from its main sound plus up to two supporting sounds made separately (a whoosh leading in, a detail just after), and one quiet steady background of the place runs under the whole video and across the cuts. Every layer is its own clip in the editor.",

@@ -2,6 +2,24 @@
 
 _Last updated: 2026-11-25_
 
+## Round 18 (2026-11-26): missing sounds and exact timing (waiting for Anthony's ratings)
+
+Anthony: "i feel like we're missing sound fx" and "timing isn't perfect"; yes to a second close
+look plus frame-exact timing. First round on the new reference video
+(`mitey_vacuum_short_polish_full_silent.mp4`). Both new settings are off by default:
+- `plan_second_look`: Claude goes through the whole video again at 8 pictures a second and
+  lists actions with no sound yet; each becomes an extra key moment (found 7 here).
+- `moment_timing: frame`: Claude sees every frame around each key moment and picks the exact
+  one; the sound is slid so it starts on that frame.
+Code: `planning.ask_missed/add_missed/ask_pins/apply_pins`, `media.frames_at`, Modal functions
+`plan_missed` and `plan_pins` (on the trial app `ai-sound-designer-dev` only; the LIVE GPU app
+does not have them yet, so deploy it before turning either setting on).
+Run: `SOUND_APP=ai-sound-designer-dev python tune.py <video> --variants variants_round18.json`.
+Tiles on the Sound Tuning Room, run `20261126-r18`; files in /mnt/project-files/round18/.
+Cost $1.36. Per video the extra Claude cost is about $0.17 (second look) plus about $0.02 per
+key moment for timing ($0.20 with 11 moments), more than the 5 to 10 cents first estimated;
+smaller pictures or a cheaper model for these two looks would cut it.
+
 ## Round 15 (2026-11-25): better effects around the same model (rated)
 
 Anthony said yes to: one sound at a time, several takes with a judge, snap to the action,
