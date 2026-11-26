@@ -50,7 +50,6 @@
   .nav .account a.signin { display: inline-block; padding: 9px 18px; border-radius: 999px; border: 1px solid var(--line, #d9dbe3);
     color: var(--ink); background: transparent; text-decoration: none; font-weight: 600; font-size: 14px; }
   .nav .account a.signin:hover { border-color: var(--ink); }
-  .nav .account a.out { color: var(--muted); }
   body:not([data-view="upload"]) .nav .account { margin-left: auto; }
 
   /* Hero */
@@ -129,7 +128,23 @@
   .mine-list .acts a { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-size: 14px; font-weight: 600; white-space: nowrap; }
   .mine-list .acts a:hover { border-color: var(--ink); }
   .mine-list .empty { padding: 26px 2px; color: var(--muted); }
-  .nav .account a.mine { color: var(--ink); text-decoration: none; font-weight: 600; }
+  .nav .account { position: relative; }
+  .acct-btn { display: flex; align-items: center; gap: 8px; padding: 5px 10px 5px 5px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 600;
+    box-shadow: none; width: auto; min-height: 0; line-height: 1; }
+  .acct-btn:hover, .acct-btn[aria-expanded="true"] { border-color: var(--ink); }
+  .acct-btn .face { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); text-transform: uppercase; }
+  .acct-btn svg { width: 12px; height: 12px; color: var(--muted); transition: transform .15s; }
+  .acct-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+  .acct-menu { position: absolute; right: 0; top: calc(100% + 8px); min-width: 230px; max-width: min(300px, calc(100vw - 32px)); z-index: 50;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px; }
+  .acct-menu .me { padding: 10px 12px 12px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  .acct-menu .me small { display: block; color: var(--muted); font-size: 12px; }
+  .acct-menu .me b { display: block; color: var(--ink); font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .acct-menu a { display: block; padding: 9px 12px; border-radius: 9px; color: var(--ink); text-decoration: none; font-size: 14.5px; font-weight: 500; }
+  .acct-menu a:hover, .acct-menu a:focus-visible { background: var(--soft); outline: none; }
+  .acct-menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
   .nav .account a, .nav .brand span { white-space: nowrap; }
   @media (max-width: 420px) { .nav { gap: 12px; } .nav .brand span { font-size: 17px; } }
   .bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 18px 0 8px; }
@@ -187,8 +202,8 @@
     .grid3, .grid4 { grid-template-columns: 1fr 1fr; }
     .split { grid-template-columns: 1fr; gap: 28px; }
     .nav .links { display: none; }
-    .nav .account { margin-left: auto; }
-    .nav .account .who { display: none; }
+    .nav .account, .nav .links + .account { margin-left: auto; }
+    .acct-btn .who { display: none; }
     .wave { display: none; }
     section.band { padding: 56px 0; }
   }
@@ -460,13 +475,33 @@ document.querySelectorAll("input[name=parts]").forEach(r => r.addEventListener("
 // --- Signing in. The page is open to everyone; adding sound needs an account. A video
 // chosen before signing in is kept in this browser and sent as soon as they are back.
 let me = null;
+const ACCOUNT_MENU = [
+  { label: "My videos", href: "/videos" },
+  { line: true },
+  { label: "Sign out", href: "/logout" },
+];
 function drawAccount() {
   const box = $("account"); box.textContent = "";
   if (!me || me.open) return;
   if (me.signed_in) {
-    const v = document.createElement("a"); v.className = "mine"; v.href = "/videos"; v.textContent = "My videos"; box.appendChild(v);
-    if (me.email) { const w = document.createElement("span"); w.className = "who"; w.textContent = me.email; box.appendChild(w); }
-    const a = document.createElement("a"); a.className = "out"; a.href = "/logout"; a.textContent = "Sign out"; box.appendChild(a);
+    // The account menu. To add an entry later (Settings, Billing), add a line to ACCOUNT_MENU.
+    const make = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+    const btn = make("button", "acct-btn"); btn.type = "button";
+    btn.setAttribute("aria-haspopup", "menu"); btn.setAttribute("aria-expanded", "false"); btn.setAttribute("aria-label", "Your account");
+    btn.appendChild(make("span", "face", (me.email || "?").slice(0, 1)));
+    btn.appendChild(make("span", "who", me.email ? me.email.split("@")[0] : "Account"));
+    btn.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>');
+    const menu = make("div", "acct-menu hidden"); menu.setAttribute("role", "menu");
+    if (me.email) { const who = make("div", "me"); who.appendChild(make("small", null, "Signed in as")); who.appendChild(make("b", null, me.email)); who.lastChild.title = me.email; menu.appendChild(who); }
+    for (const item of ACCOUNT_MENU) {
+      if (item.line) { menu.appendChild(make("hr")); continue; }
+      const a = make("a", null, item.label); a.href = item.href; a.setAttribute("role", "menuitem"); menu.appendChild(a);
+    }
+    const open = yes => { menu.classList.toggle("hidden", !yes); btn.setAttribute("aria-expanded", yes ? "true" : "false"); };
+    btn.addEventListener("click", e => { e.stopPropagation(); open(menu.classList.contains("hidden")); });
+    document.addEventListener("click", e => { if (!menu.contains(e.target)) open(false); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !menu.classList.contains("hidden")) { open(false); btn.focus(); } });
+    box.appendChild(btn); box.appendChild(menu);
   } else {
     const a = document.createElement("a"); a.className = "signin"; a.href = me.login_url || "/login"; a.textContent = "Sign in"; box.appendChild(a);
   }
