@@ -2,6 +2,19 @@
 
 _Last updated: 2026-11-26_
 
+## Effects volume bug found and fixed (2026-11-26, not live yet)
+
+Round 20 scores: Minimal 3, Balanced 2, Rich 4; Anthony: "minimal actually sounded more full
+than balanced". Cause: `mixing.effects_layers` sets the whole effects track to its loudness with
+a peak limit, and one clip with a few very tall peaks (a real recording of fibers snapping in
+Balanced, a click at the end of a generated room tone in Rich) hit that limit first, so every
+other effect ended up 13 to 20 dB too quiet (effects 15 dB under the music in Balanced, 8 dB in
+Rich, 1 dB over in Minimal). This is in the LIVE sound too. Fix: `mixing.tame_peaks` eases down
+only the tallest peaks of each layer before the final gain (test added). Same sounds remixed:
+Balanced effects now 2 dB under the music, Rich 3 dB over. Second pass on the Sound Tuning Room,
+run `20261126-r20b`. Waiting for Anthony's scores and his go-ahead to deploy the fix and the
+sound detail choice together from 1d0ddk (which has the editor thread's speed-up).
+
 ## Round 20 (2026-11-26): "Sound detail" choice, Minimal / Balanced / Rich (waiting for Anthony's ratings)
 
 Anthony said yes to letting the person choose how many effects are added. Setting `sound_detail`
