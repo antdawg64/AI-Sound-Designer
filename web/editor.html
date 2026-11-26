@@ -1288,9 +1288,17 @@ function startTrim(ev, p, side) {
   node.setPointerCapture(ev.pointerId);
   const label = node.querySelector(".label"), text = label.textContent;
   let moved = false, last = 0;
+  // The waveform stays where it is in time: the whole sound is drawn once, and the clip
+  // is a window that the edge slides over.
+  const wave = node.querySelector("canvas");
+  const pin = () => { wave.style.left = (-p.in * pps) + "px"; };
   const onMove = m => {
     const d = (m.clientX - x0) / pps;
     if (!moved && Math.abs(m.clientX - x0) < 2) return;
+    if (!moved) {
+      wave.style.right = "auto"; wave.style.width = (full * pps) + "px"; pin();
+      drawWave(wave, p.src, cssColor(WAVE[lookOf(p)]), clamp(gainOf(p.gain_db + S.effects_db), 0.15, 1.6), 0, full);
+    }
     moved = true; node.classList.add("dragging");
     if (side === "left") {
       const by = clamp(d, Math.max(-was.in, -was.start), was.out - was.in - MIN_PIECE);
@@ -1300,6 +1308,7 @@ function startTrim(ev, p, side) {
     }
     node.style.left = (p.start * pps) + "px";
     node.style.width = Math.max(6, lengthOf(p) * pps - 2) + "px";
+    pin();
     label.textContent = lengthOf(p).toFixed(2) + " s  " + text;
     seekQuiet(side === "left" ? Math.max(0, p.start) : Math.min(M.duration, p.start + lengthOf(p)));
     if (playing && performance.now() - last > 200) { last = performance.now(); schedulePiece(p); }
@@ -1307,6 +1316,7 @@ function startTrim(ev, p, side) {
   const onUp = () => {
     node.removeEventListener("pointermove", onMove); node.removeEventListener("pointerup", onUp); node.removeEventListener("pointercancel", onUp);
     node.classList.remove("dragging"); label.textContent = text;
+    if (moved && p.in === was.in && p.out === was.out) drawClips();        // back where it began: the usual drawing again
     if (moved && (p.in !== was.in || p.out !== was.out)) {
       if (playing) schedulePiece(p);
       commit("trim", { clip: p.id, side, from: +(side === "left" ? was.in : was.out).toFixed(3), to: +(side === "left" ? p.in : p.out).toFixed(3) });
