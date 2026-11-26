@@ -756,3 +756,13 @@ the effects model stays HunyuanVideo-Foley (`sfx_engine: foley`). Stable Audio s
 the code as an option; its known weakness is that a continuing sound is made anew for
 every shot. An idea not yet tried: Stable Audio only where the licence blocks the
 current model (EU, UK, South Korea), so those visitors are served instead of refused.
+
+## My videos (Nov 26, 2026)
+
+- Each new video records the account that made it (`owner` in the job, and a list per
+  account in the jobs Dict under `mine:<account>`). Page `/videos` ("My videos", linked
+  top right when signed in) lists them with Open, Fine-tune and Download, and days left.
+- A video with an owner can only be opened by that account (and the site owner's
+  addresses). Videos made before this have no owner: they are in nobody's list and stay
+  open to any signed-in person who has the link, until they are deleted after 7 days.
+

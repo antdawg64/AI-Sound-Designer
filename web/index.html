@@ -120,6 +120,18 @@
   /* Progress and result */
   .solo { max-width: 620px; margin: 28px auto 96px; }
   .solo.result { max-width: 760px; }
+  .mine-list { margin: 18px 0 22px; border-top: 1px solid var(--line); }
+  .mine-list .row { display: flex; align-items: center; gap: 14px; padding: 14px 2px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .mine-list .what { flex: 1 1 240px; min-width: 0; }
+  .mine-list .what b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mine-list .what span { color: var(--muted); font-size: 13.5px; }
+  .mine-list .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .mine-list .acts a { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .mine-list .acts a:hover { border-color: var(--ink); }
+  .mine-list .empty { padding: 26px 2px; color: var(--muted); }
+  .nav .account a.mine { color: var(--ink); text-decoration: none; font-weight: 600; }
+  .nav .account a, .nav .brand span { white-space: nowrap; }
+  @media (max-width: 420px) { .nav { gap: 12px; } .nav .brand span { font-size: 17px; } }
   .bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 18px 0 8px; }
   .bar div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .6s ease; }
   .steps { list-style: none; padding: 0; margin: 18px 0 0; font-size: 15px; }
@@ -285,6 +297,14 @@
     <a class="button secondary wide" href="/">Do another video</a>
   </section>
 
+  <!-- My videos -->
+  <section id="mine" class="card solo result hidden">
+    <h2>My videos</h2>
+    <p class="muted" id="mine-sub"></p>
+    <div id="mine-list" class="mine-list"></div>
+    <a class="button wide" href="/">Add sound to a video</a>
+  </section>
+
   <!-- Failed / not found -->
   <section id="failed" class="card solo hidden">
     <h2>Something went wrong</h2>
@@ -373,7 +393,7 @@ window.fetch = async (...args) => {
 const STEPS = ["Reading the video", "Planning the sound", "Making the sound effects",
                "Composing the music", "Mixing", "Checking the result"];
 const show = id => {
-  ["upload", "sending", "working", "done", "failed", "blocked"].forEach(s => $(s).classList.toggle("hidden", s !== id));
+  ["upload", "sending", "working", "done", "failed", "blocked", "mine"].forEach(s => $(s).classList.toggle("hidden", s !== id));
   document.body.dataset.view = id;   // the pitch and the sections below only show with the upload form
   $("hero").classList.toggle("hidden", id !== "upload");
   if (id !== "upload") window.scrollTo(0, 0);
@@ -444,6 +464,7 @@ function drawAccount() {
   const box = $("account"); box.textContent = "";
   if (!me || me.open) return;
   if (me.signed_in) {
+    const v = document.createElement("a"); v.className = "mine"; v.href = "/videos"; v.textContent = "My videos"; box.appendChild(v);
     if (me.email) { const w = document.createElement("span"); w.className = "who"; w.textContent = me.email; box.appendChild(w); }
     const a = document.createElement("a"); a.className = "out"; a.href = "/logout"; a.textContent = "Sign out"; box.appendChild(a);
   } else {
@@ -577,12 +598,39 @@ function finished(id, job) {
   show("done");
 }
 
+async function showMine() {
+  let data = { videos: [] };
+  try { data = await (await fetch("/api/my-videos", { cache: "no-store" })).json(); } catch (err) {}
+  const days = data.keep_days || (cfg ? cfg.keep_days : 7);
+  $("mine-sub").textContent = `Videos you made while signed in. Each one is kept for ${days} days, then deleted.`;
+  const list = $("mine-list"); list.textContent = "";
+  const make = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const label = { both: "effects and music", effects: "sound effects only", music: "music only" };
+  if (!data.videos.length) list.appendChild(make("div", "empty", "No videos yet. Videos you make from now on will show up here."));
+  for (const v of data.videos) {
+    const row = make("div", "row"), what = make("div", "what");
+    what.appendChild(make("b", null, v.name || "Video"));
+    const when = new Date(v.created * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const state = v.state === "done" ? (v.days_left > 0 ? `${v.days_left} day${v.days_left === 1 ? "" : "s"} left` : "deleted within a day")
+      : v.state === "failed" ? "didn't work" : "being made";
+    what.appendChild(make("span", null, [when, label[v.parts] || label.both, v.seconds ? Math.round(v.seconds) + " s" : "", state, v.test_tones ? "test tones" : ""].filter(Boolean).join(" · ")));
+    row.appendChild(what);
+    const acts = make("div", "acts");
+    const link = (text, href, download) => { const a = make("a", null, text); a.href = href; if (download) a.setAttribute("download", ""); acts.appendChild(a); };
+    link(v.state === "done" ? "Open" : "View", "/j/" + v.id);
+    if (v.state === "done") { link("Fine-tune", "/edit/" + v.id); link("Download", `/api/job/${v.id}/final.mp4?download=1`, true); }
+    row.appendChild(acts); list.appendChild(row);
+  }
+  show("mine");
+}
+
 async function start() {
   try { cfg = await (await fetch("/api/config", { cache: "no-store" })).json(); } catch (err) { cfg = null; }
   try { me = await (await plainFetch("/api/me", { cache: "no-store" })).json(); } catch (err) { me = null; }
   drawAccount();
   const m = location.pathname.match(/^\/j\/([A-Za-z0-9]+)/);
   if (m) return watch(m[1]);
+  if (location.pathname === "/videos") return showMine();
   if (cfg && cfg.you_are_blocked) return show("blocked");
   if (cfg) $("keep-days").textContent = cfg.keep_days;
   fillCountries(cfg && cfg.your_country);

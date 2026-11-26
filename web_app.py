@@ -181,7 +181,7 @@ def web():
     import shutil
 
     from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-    from fastapi.responses import FileResponse, HTMLResponse
+    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
     from soundlib import media
 
@@ -193,6 +193,27 @@ def web():
     import os
 
     from soundlib import gate
+    # --- Whose video is it. A video made while signed in belongs to that account: only its
+    # maker (and the site owner) can open it, its files and its editor. Videos from before
+    # this was recorded have no maker and stay open to any signed-in person with the link.
+    def account_of(request: Request) -> str:
+        person = getattr(request.state, "person", None) or {}
+        return str(person.get("uid") or person.get("email") or "").strip().lower()
+
+    def is_site_owner(request: Request) -> bool:
+        email = (getattr(request.state, "person", None) or {}).get("email", "").strip().lower()
+        return bool(email) and hashlib.sha256(email.encode()).hexdigest() in {
+            str(h).lower() for h in C.WEB_ADMIN_EMAIL_SHA256}
+
+    @api.middleware("http")     # added before the gate, so it runs after the gate knows who this is
+    async def own_videos_only(request: Request, call_next):
+        parts = request.url.path.split("/")
+        if len(parts) >= 4 and parts[1] == "api" and parts[2] in ("job", "edit"):
+            maker = (job_status.get(parts[3]) or {}).get("owner")
+            if maker and maker != account_of(request) and not is_site_owner(request):
+                return JSONResponse({"detail": "That video wasn't found."}, status_code=404)
+        return await call_next(request)
+
     gate.attach(api, os.environ.get("SITE_PASSWORD", ""), str(C.WEB_LOGIN_URL or ""), Path("/root/web"),
                 supabase_url=str(C.WEB_SUPABASE_URL or ""), supabase_anon_key=str(C.WEB_SUPABASE_ANON_KEY or ""))
 
@@ -202,6 +223,7 @@ def web():
 
     @api.get("/", response_class=HTMLResponse)
     @api.get("/j/{job_id}", response_class=HTMLResponse)
+    @api.get("/videos", response_class=HTMLResponse)
     def home(job_id: str | None = None):
         return page
 
@@ -262,12 +284,31 @@ def web():
                "created": time.time(), "name": Path(video.filename or "video").stem[:80],
                "ext": ext, "seconds": round(seconds, 1), "vibe": vibe.strip()[:120],
                "parts": parts, "country": country, "ip_country": ip_country}
+        maker = account_of(request)
+        if maker:
+            job["owner"] = maker
+            job_status[f"mine:{maker}"] = (job_status.get(f"mine:{maker}") or [])[-199:] + [job_id]
         (folder / "job.json").write_text(json.dumps(job, indent=2))
         jobs_volume.commit()
         job_status[job_id] = job
         job_status[today] = job_status.get(today, 0) + 1
         run_job.spawn(job_id, test_tones=test_tones == "yes")
         return {"id": job_id}
+
+    @api.get("/api/my-videos")
+    def my_videos(request: Request):
+        """The signed-in person's videos that still exist, newest first."""
+        maker = account_of(request)
+        ids = (job_status.get(f"mine:{maker}") or []) if maker else []
+        found = [job for job in (job_status.get(i) for i in ids) if job]
+        if maker and len(found) != len(ids):      # some were deleted after web_keep_days
+            job_status[f"mine:{maker}"] = [job["id"] for job in found]
+        keep = float(C.WEB_KEEP_DAYS) * 86400
+        public = ("id", "state", "created", "name", "seconds", "vibe", "parts", "test_tones")
+        rows = [{k: job[k] for k in public if k in job} | {
+            "days_left": max(0, -int(-(job["created"] + keep - time.time()) // 86400))} for job in reversed(found)]
+        return JSONResponse({"videos": rows, "accounts": bool(maker), "keep_days": C.WEB_KEEP_DAYS},
+                            headers={"Cache-Control": "no-store"})
 
     @api.get("/api/job/{job_id}")
     def status(job_id: str):
