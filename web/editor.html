@@ -27,6 +27,7 @@
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }      /* iPhones turned sideways must not blow text up */
   body { margin: 0; background: var(--bg); color: var(--ink); display: flex; flex-direction: column;
          font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 640px; }
   button { font-family: inherit; font-size: 14px; font-weight: 600; line-height: 1; border: 1px solid var(--line); border-radius: 9px;
@@ -105,6 +106,25 @@
     body.tall .removed { grid-column: 1; grid-row: 6; min-width: 0; }
     body.tall .timeline { max-height: 46vh; }
   }
+  /* A phone turned sideways or a small tablet: not enough height for everything at once, so
+     the page scrolls under a top bar and the tall video stays in view on the right. */
+  @media (min-width: 821px) and (max-width: 1279px) and (max-height: 760px) {
+    html, body { height: auto; }
+    body { min-height: 100%; }
+    body.tall { grid-template-columns: minmax(0, 1fr) min(34vw, calc((100vh - 16px) * var(--shape, 0.5625)));
+                grid-template-rows: auto auto auto auto auto auto; align-items: start; }
+    body.tall .viewer { grid-row: 1 / 7; margin: 8px 8px 8px 0; position: sticky; top: 8px; height: calc(100vh - 16px); z-index: 9; }
+    body.tall .top { grid-column: 1; }
+    body.tall .small-screen { grid-column: 1; }
+    body.tall .transport { grid-row: 3; position: sticky; top: 0; z-index: 9; background: var(--bg); padding-top: 8px; flex-wrap: wrap; }
+    body.tall .timeline { grid-row: 4; max-height: none; overflow-y: visible; }
+    body.tall .panel { grid-row: 5; margin: 10px 12px; overflow: visible; }
+    body.tall .removed { grid-row: 6; }
+    body.tall .lane { touch-action: pan-x pan-y; }
+    body.tall .top h1 { font-size: 15px; }
+    body.tall #reset, body.tall #save-status { display: none; }
+  }
+  @media (max-width: 1100px) { .top .name { display: none; } }
   /* With room to spare, the side panel stands between the timeline and the tall video. */
   @media (min-width: 1280px) {
     body.tall { grid-template-columns: minmax(0, 1fr) 320px min(36vw, calc((100vh - 84px) * var(--shape, 0.5625)));
@@ -202,6 +222,7 @@
              background: var(--card); flex: none; min-height: 44px; }
   .removed button { padding: 5px 9px; font-size: 12px; font-weight: 500; max-width: 240px; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
   .removed .note { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .removed .fold { font-weight: 600; }
 
   /* Loading, errors, the finished dialog */
   .cover { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 20; padding: 16px; }
@@ -354,6 +375,9 @@ let history = [], historyAt = 0;
 let events = [], renders = 0;
 let pps = 40, zoom = 1, zoomSet = false;  // pixels per second
 const PHONE = window.matchMedia("(max-width: 820px)");
+const LOW = window.matchMedia("(min-width: 821px) and (max-width: 1279px) and (max-height: 760px)");
+// The whole page scrolls (instead of the timeline in its own box) on phones, and on short wide screens with a tall video.
+const pageScrolls = () => PHONE.matches || (LOW.matches && document.body.classList.contains("tall"));
 let rows = {}, rowCount = {};   // piece id -> its line inside its row; row key -> how many lines it needs
 let TRACKS = [], trackOfClip = {};   // the rows of sound effects, top to bottom; sound id -> its row
 const WAVE = { moment: "--moment", background: "--bg-clip", ambience: "--ambience", added: "--added" };
@@ -716,11 +740,11 @@ function buildTimeline() {
     // here (the red line is dragged along the top), and a tap puts the red line there.
     lane.addEventListener("pointerdown", e => {
       if (e.target !== lane) return;
-      if (e.pointerType === "touch" && PHONE.matches) return;
+      if (e.pointerType === "touch" && pageScrolls()) return;
       boxSelect(e);
     });
     lane.addEventListener("click", e => {
-      if (e.target !== lane || !PHONE.matches) return;
+      if (e.target !== lane || !pageScrolls()) return;
       if (selected || multi.size) select(null);
       seek((e.clientX - $("lanes").getBoundingClientRect().left) / pps);
     });
@@ -1165,14 +1189,19 @@ function drawPanel() {
   tip.style.fontSize = "12px"; panel.appendChild(tip);
   drawPlayhead();
 }
+let removedOpen = false;
 function drawRemoved() {
   const box = $("removed"); box.textContent = "";
   // The other options of a sound wait in its panel, not here.
   const waiting = new Set(FIRST.filter(q => q.deleted).map(q => q.id));
   const gone = S.pieces.filter(p => p.deleted && !waiting.has(p.id));
   if (gone.length) {
-    box.appendChild(el("span", "muted", "Removed:"));
-    for (const p of gone) {
+    // Folded away until asked for: a long evening of trying sounds leaves many of these.
+    const fold = el("button", "fold", (removedOpen ? "▾ " : "▸ ") + "Removed (" + gone.length + ")");
+    fold.title = "Sounds you removed. Open to put one back.";
+    fold.addEventListener("click", () => { removedOpen = !removedOpen; drawRemoved(); });
+    box.appendChild(fold);
+    for (const p of removedOpen ? gone : []) {
       const b = el("button", null, "↩ " + shortLabel(p.label, 34)); b.title = "Put back: " + p.label;
       b.addEventListener("click", () => { p.deleted = false; if (playing) schedulePiece(p); selected = p.id; commit("restore", { clip: p.id }); });
       box.appendChild(b);
@@ -1422,7 +1451,7 @@ function scrub(ev) {
 // play buttons on a phone (where the whole page scrolls).
 function pinTop() {
   const lanes = $("lanes"), top = lanes.getBoundingClientRect().top;
-  const edge = PHONE.matches ? document.querySelector(".transport").getBoundingClientRect().bottom
+  const edge = pageScrolls() ? document.querySelector(".transport").getBoundingClientRect().bottom
                              : document.querySelector(".timeline").getBoundingClientRect().top;
   const by = clamp(edge - top, 0, Math.max(0, lanes.offsetHeight - ROW.ruler - ROW.scenes - 40));
   const move = by ? "translateY(" + by + "px)" : "";
@@ -1563,7 +1592,9 @@ async function start() {
   const video = $("video");
   video.addEventListener("error", () => { if (!video.dataset.plain) { video.dataset.plain = "1"; video.src = "/api/job/" + JOB + "/final.mp4"; } });
   video.addEventListener("loadeddata", () => { if (!playing) showPicture(position); });
+  video.addEventListener("loadeddata", () => { if (!playing && S) showPicture(position); });
   video.addEventListener("loadedmetadata", () => {
+    if (!playing && S) showPicture(position);
     const tall = video.videoHeight > video.videoWidth * 1.1;
     document.body.style.setProperty("--shape", (video.videoWidth / Math.max(1, video.videoHeight)).toFixed(4));
     if (tall !== document.body.classList.contains("tall")) {
