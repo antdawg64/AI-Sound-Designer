@@ -185,7 +185,11 @@
   .clip .label { position: absolute; left: 0; top: 0; max-width: 100%; font-size: 11px; font-weight: 600; line-height: 1.2; color: var(--ink);
                  background: color-mix(in srgb, var(--cs) 82%, transparent); padding: 2px 6px; border-bottom-right-radius: 6px;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
-  .clip.selected { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--c); z-index: 4; }
+  /* The selected sound: a dark (in dark mode: white) frame with a yellow glow that no clip colour has, and the rest fade back. */
+  .clip.selected { border-color: var(--ink); box-shadow: 0 0 0 2px var(--ink), 0 0 0 5px #ffd43b, 0 6px 14px rgba(0, 0, 0, .35); z-index: 4; transform: translateY(-1px); }
+  .lanes.picking .clip:not(.selected):not(.dragging) { opacity: .45; }
+  .lanes.picking .clip.off:not(.selected) { opacity: .25; }
+  .clip { transition: opacity .12s; }
   .clip.dragging { cursor: grabbing; opacity: .85; z-index: 5; }
   .clip.off { opacity: .4; background: repeating-linear-gradient(135deg, var(--cs) 0 6px, transparent 6px 12px); }
   .clip.moved::after { content: ""; position: absolute; right: 3px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
@@ -766,6 +770,7 @@ function drawPending() {
 }
 function drawClips() {
   packRows();
+  $("lanes").classList.toggle("picking", !!selected || multi.size > 1);
   for (const key in laneOf) laneOf[key].style.height = laneHeight(key) + "px";
   for (const key of ["music", "voice"]) {
     const node = laneOf[key] && laneOf[key].querySelector(".clip"); if (!node) continue;
