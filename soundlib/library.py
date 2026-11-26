@@ -206,7 +206,14 @@ def fit(audio: np.ndarray, sr: int, seg: dict, kind: str) -> np.ndarray:
         audio = audio[:, None]
     want = max(1, int(round((seg["clip_end"] - seg["clip_start"]) * sr)))
     out = np.zeros((want, audio.shape[1]), dtype=np.float32)
-    if kind in ("ambience", "source"):
+    if kind == "source":
+        # One continuous sound cut into stretches: every stretch reads the recording at
+        # its own place in the video, so neighbouring stretches carry on from each other
+        # (their overlaps are the very same sound) instead of each restarting it.
+        first = int(round(seg["clip_start"] * sr))
+        whole = _loop_to(audio, sr, first + want)
+        return _fade(whole[first:first + want], sr, 0.05, 0.05)
+    if kind == "ambience":
         piece = steadiest(audio, sr, want / sr)
         return _fade(_loop_to(piece, sr, want), sr, 0.05, 0.05)
     at = seg.get("time", seg["clip_start"]) - seg["clip_start"]     # the action, seconds into the clip
@@ -227,6 +234,12 @@ def fit(audio: np.ndarray, sr: int, seg: dict, kind: str) -> np.ndarray:
     return out
 
 
+BEATS_RULE = """- the wanted sound's use is "steady sound source" and the sound has to follow what is \
+seen beat by beat (footsteps, hammering, typing, chewing, a ball bouncing): a library \
+recording cannot follow the picture. Steady sources that suit a recording are ones \
+with no visible beats (rain, wind, traffic, a motor or fan running evenly, water \
+flowing, a crowd of machines, room tone)."""
+
 # How demanding the judge is (setting library_judge).
 JUDGE_RULES = {
     "claude": """Choose a candidate only when a professional would accept it without hearing anything \
@@ -239,6 +252,18 @@ is a bone, a mallet on carpet is any heavy thing landing on carpet. Choose the c
 whose sound has the right weight, material, sharpness and length for the wanted sound, \
 even when the uploader recorded something else. The viewer must not be able to tell. \
 Choose 0, which means "generate it instead", only when no candidate would sound right.""",
+    "claude_library_first": """The film's whole soundtrack is being built from real recordings, and a sound is only \
+generated when the library truly has nothing for it. Judge like a foley artist, by how \
+it would SOUND in the film and not by what object made it: a fist on a cushion is a \
+body fall, a mallet on carpet is any heavy thing landing on carpet, a hair dryer can be \
+a small motor. Choose the candidate whose sound has the right weight, material, \
+sharpness and character, even when the uploader recorded something else. This also \
+goes for a "steady sound source" that is busy or rhythmic (pattering feet, rustling, \
+scraping, rattling): choose a recording with the right texture and pace; it does not \
+have to follow the picture beat by beat. Choose 0, which means "generate it instead", \
+only when no candidate would sound right, or when the sound is single slow separate \
+beats that the viewer would see out of step (one person walking slowly, a hammer \
+striking).""",
 }
 
 # --- Choosing with Claude ---------------------------------------------------------
@@ -256,11 +281,7 @@ Choose 0 when:
 candidate is truly that sound;
 - the candidate's text suggests talking, singing, music, several unrelated sounds, a \
 noisy or low-quality recording, or something taken from a film, game or broadcast;
-- the wanted sound's use is "steady sound source" and the sound has to follow what is \
-seen beat by beat (footsteps, hammering, typing, chewing, a ball bouncing): a library \
-recording cannot follow the picture. Steady sources that suit a recording are ones \
-with no visible beats (rain, wind, traffic, a motor or fan running evenly, water \
-flowing, a crowd of machines, room tone).
+{beats}
 
 For a "key moment", "detail" or "whoosh" prefer a short, clean recording of a single \
 event. For "background of the place" or a "steady sound source" prefer a long, even \
@@ -303,7 +324,8 @@ def ask_judge(asks: list[dict], shortlists: list[list[dict]], model: str, style:
 
     response = anthropic.Anthropic().messages.parse(
         model=model, max_tokens=4000,
-        system=JUDGE_SYSTEM.replace("{rule}", JUDGE_RULES.get(style, JUDGE_RULES["claude"])),
+        system=JUDGE_SYSTEM.replace("{rule}", JUDGE_RULES.get(style, JUDGE_RULES["claude"]))
+        .replace("{beats}", "" if style == "claude_library_first" else BEATS_RULE),
         messages=[{"role": "user", "content": judge_message(asks, shortlists)}],
         output_format=Choices)
     if response.parsed_output is None:
@@ -354,6 +376,14 @@ def find(backend, prompt: str, seg: dict, search=None) -> tuple[np.ndarray, int]
     if not kind:
         return None
     ask = {"prompt": prompt, "kind": kind, "seconds": round(float(seg["clip_end"] - seg["clip_start"]), 2)}
+    # A sound source heard in several stretches (the vacuum over many shots) keeps the
+    # one recording chosen for its first stretch, so it does not change character.
+    picks = backend.__dict__.setdefault("_library_picks", {}) if hasattr(backend, "__dict__") else {}
+    memo = (kind, seg.get("source"), repr(options())) if kind == "source" and seg.get("source") else None
+    if memo in picks:
+        audio, sr, note = picks[memo]
+        seg["library"] = dict(note)
+        return fit(audio, sr, seg, kind), sr
     try:
         if search is None:
             search = backend.modal.Cls.from_name(app_name(), "Search")().match.remote
@@ -379,6 +409,8 @@ def find(backend, prompt: str, seg: dict, search=None) -> tuple[np.ndarray, int]
     seg["library"] = {"used": True, "why": result.get("why", ""), "score": result.get("score"),
                       **{k: result["clip"].get(k) for k in
                          ("id", "source", "title", "author", "licence", "url", "seconds", "labels")}}
+    if memo:
+        picks[memo] = (audio, sr, dict(seg["library"]))
     return placed, sr
 
 

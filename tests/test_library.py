@@ -134,3 +134,34 @@ def test_find_uses_a_chosen_recording_and_records_where_it_came_from():
         assert not broken["library"]["used"]
     finally:
         C.reset()
+
+
+def test_stretches_of_one_source_carry_on_from_each_other():
+    air = (0.1 * np.random.default_rng(3).standard_normal(5 * SR)).astype(np.float32)[:, None]
+    a = L.fit(air, SR, {"index": 500, "clip_start": 0.0, "clip_end": 4.3}, "source")
+    b = L.fit(air, SR, {"index": 501, "clip_start": 3.7, "clip_end": 9.0}, "source")
+    assert len(b) == int(round(5.3 * SR))
+    # where the two overlap (3.7 to 4.3 s) they are the same sound, away from the fades
+    at, off = int(3.9 * SR), int(round(3.7 * SR))
+    assert np.allclose(a[at:at + 8000], b[at - off:at - off + 8000], atol=1e-6)
+
+
+def test_one_source_keeps_one_recording():
+    clip = {"id": "9", "source": "fsd50k", "title": "vacuum", "author": "a", "licence": "CC0 1.0",
+            "url": "u", "seconds": 5.0, "labels": []}
+    calls = []
+
+    def search(asks, opts):
+        calls.append(asks)
+        return {"results": [{"clip": clip, "flac": flac(hum(5.0)), "score": 0.4, "why": "ok"}]}
+
+    C.override({"sfx_library": "on"})
+    try:
+        backend = Backend()
+        for n, start in enumerate((0.0, 7.7)):
+            seg = {"index": 500 + n, "separate": True, "source": "vacuum motor", "clip_start": start, "clip_end": start + 8.0}
+            assert L.find(backend, f"vacuum wording {n}", seg, search=search) is not None
+            assert seg["library"]["id"] == "9"
+        assert len(calls) == 1
+    finally:
+        C.reset()

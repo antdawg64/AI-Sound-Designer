@@ -196,8 +196,11 @@ def index() -> dict:
     return {"recordings": len(rows), "gpu_seconds": round(time.time() - started)}
 
 
-def _suits(row: dict, kind: str, seconds: float) -> bool:
-    """Whether a recording can do this kind of job at all, from its measurements."""
+def _suits(row: dict, kind: str, seconds: float, busy: bool = False) -> bool:
+    """Whether a recording can do this kind of job at all, from its measurements.
+    busy: a continuous source may be a lively one (pattering, rustling), not only an even one."""
+    if kind == "source" and busy:
+        return row["seconds"] >= 4.0 and row["steady_db"] <= 14.0
     if kind in ("ambience", "source"):          # long and even, nothing happening in it
         return row["seconds"] >= max(4.0, min(seconds, 8.0) * 0.6) and row["steady_db"] <= 6.0
     if kind == "whoosh":
@@ -233,7 +236,8 @@ class Search:
             found = []
             for i in np.argsort(-row_scores)[:400]:
                 row = self.rows[i]
-                if (sources and row["source"] not in sources) or not _suits(row, ask["kind"], ask["seconds"]):
+                if (sources and row["source"] not in sources) or not _suits(
+                        row, ask["kind"], ask["seconds"], opts.get("judge") == "claude_library_first"):
                     continue
                 # A small push for recordings whose own title, tags or labels use the same words.
                 theirs = " ".join([row["title"], *row["tags"], *row["labels"]]).lower().replace("_", " ")

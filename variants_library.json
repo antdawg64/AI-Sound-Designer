@@ -1,40 +1,20 @@
 {
-  "_about": "Round 16 (2026-11-26): real recordings for common sounds (Anthony: 'yes on 6 too'). Current is the round 14 winner (layered effects, pro mix), every sound generated. Earlier rounds are in variants_round*.json and variants_layers.json.",
+  "_about": "Round 16 (2026-11-26): real recordings for common sounds (Anthony: 'yes on 6 too'). Current is the round 14 winner (layered effects, pro mix), every sound generated. Earlier rounds are in variants_round*.json and variants_layers.json. Round 17 (2026-11-26): Anthony asked to rebuild the whole thing from real recordings and generate only what the library lacks. Current is now the round 16 winner.",
   "videos": [],
   "vibes": {},
   "include_takes": false,
   "variants": [
     {
-      "id": "library",
-      "label": "Real recordings, only exact matches",
-      "setting": "sfx_library",
-      "value": "on",
-      "why": "Each key moment and the room background is looked for in the library of real recordings first. Claude uses a recording only when it is the same thing making the same sound. On this video nothing in the library was an exact match, so every sound was still generated: this one should sound the same as Current."
-    },
-    {
-      "id": "library_alike",
-      "label": "Real recordings that sound right",
+      "id": "library_first",
+      "label": "Everything from real recordings",
       "settings": {
         "sfx_library": "on",
-        "library_judge": "claude_sounds_alike",
-        "library_min_score": 0.2
+        "library_judge": "claude_library_first",
+        "library_min_score": 0.15,
+        "library_candidates": 8,
+        "sfx_sources": "separate"
       },
-      "why": "Claude chooses like a foley artist: a real recording is used when it would sound right, even if something else made it (a heavy thud on carpet for the vacuum nozzle landing). The sounds it cannot match are generated as before."
-    },
-    {
-      "id": "library_alike_moments",
-      "label": "Real recordings that sound right, key moments only",
-      "settings": {
-        "sfx_library": "on",
-        "library_judge": "claude_sounds_alike",
-        "library_min_score": 0.2,
-        "library_kinds": [
-          "moment",
-          "whoosh",
-          "detail"
-        ]
-      },
-      "why": "The same, but the steady background of the room stays generated."
+      "why": "Every sound, the continuous ones too (vacuum motor, suction air, pattering feet), is looked for in the library first and made one at a time. A sound is generated only when the library has nothing that would sound right."
     }
   ]
 }
