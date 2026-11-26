@@ -119,6 +119,11 @@
   /* Progress and result */
   .solo { max-width: 620px; margin: 28px auto 96px; }
   .solo.result { max-width: 760px; }
+  .cost { margin: 18px 0 6px; padding: 14px 16px; border: 1px dashed var(--line); border-radius: 14px; font-size: 14px; }
+  .cost-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+  .cost-head b { font-size: 15px; } .cost-head span { color: var(--muted); font-size: 12.5px; }
+  .cost .line { display: flex; justify-content: space-between; padding: 4px 0; color: var(--muted); }
+  .cost .line span:last-child { color: var(--ink); font-variant-numeric: tabular-nums; }
   .mine-list { margin: 18px 0 22px; border-top: 1px solid var(--line); }
   .mine-list .row { display: flex; align-items: center; gap: 14px; padding: 14px 2px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   .mine-list .what { flex: 1 1 240px; min-width: 0; }
@@ -307,6 +312,10 @@
       <a class="button" id="dl-video" download>Download video with sound</a>
       <a class="button secondary" id="dl-music" download>Music only (WAV)</a>
       <a class="button secondary" id="dl-sfx" download>Sound effects only (WAV)</a>
+    </div>
+    <div class="cost hidden" id="cost">
+      <div class="cost-head"><b id="cost-total"></b><span>Only you can see this</span></div>
+      <div id="cost-rows"></div>
     </div>
     <p class="muted" id="keep-note"></p>
     <a class="button secondary wide" href="/">Do another video</a>
@@ -622,6 +631,18 @@ function finished(id, job) {
   $("done-sub").textContent = (job.name ? job.name + " · " : "") + (job.seconds ? job.seconds + " seconds" : "") + " · " + (label[job.parts] || label.both) +
     (job.vibe ? " · music feeling: " + job.vibe : "") + (job.test_tones ? " · TEST TONES ONLY" : "");
   // The editor: move, mute or remove single sounds and rebalance effects and music.
+  // What it cost, in credits (1 credit = 1 cent). The server only sends this to the owner.
+  $("cost").classList.toggle("hidden", !job.cost);
+  if (job.cost) {
+    const c = job.cost, rows = $("cost-rows"); rows.textContent = "";
+    $("cost-total").textContent = "This video cost " + credits(c.credits) + " ($" + (c.credits / 100).toFixed(2) + ")";
+    for (const [label, n] of [["Planning the sound (Claude)", c.planning], ["Music", c.music], ["Sound effects", c.effects], ["Other", c.other]]) {
+      if (!n) continue;
+      const line = document.createElement("div"); line.className = "line";
+      for (const t of [label, credits(n)]) { const x = document.createElement("span"); x.textContent = t; line.appendChild(x); }
+      rows.appendChild(line);
+    }
+  }
   // Right after a video finishes its editor files can take a moment to show up, so ask again.
   const offerEditor = left => fetch("/api/edit/" + id, { cache: "no-store" }).then(r => {
     if (!r.ok) { if (left > 0) setTimeout(() => offerEditor(left - 1), 3000); return; }
@@ -634,6 +655,7 @@ function finished(id, job) {
   show("done");
 }
 
+const credits = n => { const v = Math.round(n); return v + " credit" + (v === 1 ? "" : "s"); };
 async function showMine() {
   let data = { videos: [] };
   try { data = await (await fetch("/api/my-videos", { cache: "no-store" })).json(); } catch (err) {}
@@ -649,7 +671,7 @@ async function showMine() {
     const when = new Date(v.created * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     const state = v.state === "done" ? (v.days_left > 0 ? `${v.days_left} day${v.days_left === 1 ? "" : "s"} left` : "deleted within a day")
       : v.state === "failed" ? "didn't work" : "being made";
-    what.appendChild(make("span", null, [when, label[v.parts] || label.both, v.seconds ? Math.round(v.seconds) + " s" : "", state, v.test_tones ? "test tones" : ""].filter(Boolean).join(" · ")));
+    what.appendChild(make("span", null, [when, label[v.parts] || label.both, v.seconds ? Math.round(v.seconds) + " s" : "", state, v.credits != null ? credits(v.credits) : "", v.test_tones ? "test tones" : ""].filter(Boolean).join(" · ")));
     row.appendChild(what);
     const acts = make("div", "acts");
     const link = (text, href, download) => { const a = make("a", null, text); a.href = href; if (download) a.setAttribute("download", ""); acts.appendChild(a); };

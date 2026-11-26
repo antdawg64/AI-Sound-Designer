@@ -131,8 +131,8 @@ def run_job(job_id: str, test_tones: bool = False) -> dict:
         (folder / "report.json").write_text(json.dumps(report, indent=2))
         jobs_volume.commit()
         _update(job_id, state="done", step="Finished", step_number=6, passed=report["passed"],
-                cost=report["cost"]["total_dollars"], wall_seconds=report["wall_seconds"],
-                test_tones=test_tones)
+                cost=report["cost"]["total_dollars"], cost_parts=cost_summary(report["cost"]),
+                wall_seconds=report["wall_seconds"], test_tones=test_tones)
         return {"passed": report["passed"], "cost": report["cost"]["total_dollars"]}
     except Exception as exc:
         traceback.print_exc()
@@ -168,6 +168,26 @@ def export_edits() -> list[dict]:
     from soundlib import insights
 
     return insights.read_records(Path("/tuning"))
+
+
+def cost_summary(cost: dict) -> dict:
+    """What one video cost, in credits (1 credit = 1 US cent), split the way the owner reads
+    it: planning (Claude), music, sound effects. From the "cost" part of a job's report."""
+    rate = C.GPU_DOLLARS_PER_SECOND
+    music = sum(float(c.get("dollars", 0)) for c in cost.get("api_calls", []))
+    effects = 0.0
+    for call in cost.get("gpu_calls", []):
+        dollars = (call.get("gpu_seconds", 0) + call.get("load_seconds", 0)) * rate.get(call.get("gpu"), 0)
+        if "music" in str(call.get("what", "")).lower():
+            music += dollars
+        else:
+            effects += dollars
+    planning = float(cost.get("claude_dollars", 0) or 0)
+    total = float(cost.get("total_dollars", planning + music + effects) or 0)
+    credits = lambda dollars: round(dollars * 100, 1)
+    return {"credits": credits(total), "planning": credits(planning), "music": credits(music),
+            "effects": credits(effects), "other": max(0.0, credits(total - planning - music - effects)),
+            "gpu_seconds": cost.get("gpu_seconds", 0)}
 
 
 # --- The page and its API ----------------------------------------------------------
@@ -295,6 +315,20 @@ def web():
         run_job.spawn(job_id, test_tones=test_tones == "yes")
         return {"id": job_id}
 
+    def cost_of(job: dict) -> dict | None:
+        """The cost split of a finished job; worked out from its report for older jobs."""
+        if job.get("cost_parts"):
+            return job["cost_parts"]
+        report = JOBS / job["id"] / "report.json"
+        try:
+            if not report.exists():
+                jobs_volume.reload()
+            parts = cost_summary(json.loads(report.read_text())["cost"])
+        except Exception:
+            return {"credits": round(float(job["cost"]) * 100, 1)} if job.get("cost") is not None else None
+        job_status[job["id"]] = job | {"cost_parts": parts}
+        return parts
+
     @api.get("/api/my-videos")
     def my_videos(request: Request):
         """The signed-in person's videos that still exist, newest first."""
@@ -307,18 +341,25 @@ def web():
         public = ("id", "state", "created", "name", "seconds", "vibe", "parts", "test_tones")
         rows = [{k: job[k] for k in public if k in job} | {
             "days_left": max(0, -int(-(job["created"] + keep - time.time()) // 86400))} for job in reversed(found)]
+        if is_site_owner(request):
+            for row, job in zip(rows, reversed(found)):
+                if job.get("cost") is not None:
+                    row["credits"] = round(float(job["cost"]) * 100, 1)
         return JSONResponse({"videos": rows, "accounts": bool(maker), "keep_days": C.WEB_KEEP_DAYS},
                             headers={"Cache-Control": "no-store"})
 
     @api.get("/api/job/{job_id}")
-    def status(job_id: str):
+    def status(request: Request, job_id: str):
         job = job_status.get(job_id)
         if not job:
             raise HTTPException(404, "That job wasn't found. Jobs are kept for "
                                      f"{C.WEB_KEEP_DAYS} days.")
         public = ("id", "state", "step", "step_number", "created", "started", "name", "seconds",
                   "vibe", "parts", "error", "wall_seconds", "test_tones")
-        return {k: job[k] for k in public if k in job} | {"now": time.time()}
+        reply = {k: job[k] for k in public if k in job} | {"now": time.time()}
+        if job.get("state") == "done" and is_site_owner(request):   # costs: for the owner's eyes only
+            reply["cost"] = cost_of(job)
+        return reply
 
     @api.get("/api/job/{job_id}/{name}")
     def download(job_id: str, name: str, download: int = 0):
