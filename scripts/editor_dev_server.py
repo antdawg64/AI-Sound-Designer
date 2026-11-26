@@ -60,7 +60,8 @@ def make_app(out_dir: Path, video: Path, records: Path) -> FastAPI:
         def work():
             time.sleep(float(os.environ.get("ADD_SECONDS", 3)))
             try:
-                M.add_sound(video, out_dir, M.TestTones(), add_id, ask["prompt"], ask["time"], ask["seconds"])
+                M.add_sound(video, out_dir, M.TestTones(), add_id, ask["prompt"], ask["time"], ask["seconds"],
+                            refine=ask.get("refine"))
                 adds[job_id][add_id]["state"] = "done"
             except Exception as exc:
                 print("add failed:", exc, flush=True)

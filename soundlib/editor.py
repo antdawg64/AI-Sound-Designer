@@ -327,8 +327,14 @@ def load_state(out_dir: Path, manifest: dict) -> dict:
     # A sound added in the editor whose page was closed before it arrived: put it on the
     # timeline now, where it was asked for.
     placed = {p["src"] for p in state["pieces"]}
-    state["pieces"] += [p for p in initial_pieces(manifest)
-                        if p["src"] not in placed and sources_added(manifest, p["src"])]
+    clips = {c["id"]: c for c in manifest["clips"]}
+    for new in [p for p in initial_pieces(manifest)
+                if p["src"] not in placed and clips[p["src"]].get("added")]:
+        replaced = clips[new["src"]].get("refine_of")      # a remake takes the old one's place
+        for old in state["pieces"]:
+            if replaced and old["src"] == replaced:
+                old["deleted"] = True
+        state["pieces"].append(new)
     return state
 
 
@@ -475,7 +481,9 @@ def moment_level_db(out_dir: Path) -> float:
 
 
 def save_added(out_dir: Path, add_id: str, audio: np.ndarray, *, start: float, time_s: float,
-               prompt: str, duration: float, recording: dict | None = None) -> dict:
+               prompt: str, duration: float, recording: dict | None = None,
+               made_as: str | None = None, seconds: float | None = None,
+               refine_of: str | None = None, tweak: str | None = None) -> dict:
     """Keep one added sound (stereo, 48 kHz, already levelled) and return its clip, shaped
     like the key moments the AI made. `start`: where `audio` begins in the video."""
     sr = C.SAMPLE_RATE
@@ -495,6 +503,11 @@ def save_added(out_dir: Path, add_id: str, audio: np.ndarray, *, start: float, t
             "loudness": "medium", "created": time.time()}
     if recording:
         clip["recording"] = recording
+    # made_as: the description it was really made from; seconds: the length asked for;
+    # refine_of / tweak: the sound this one replaces and how it was to change.
+    for key, value in (("made_as", made_as), ("seconds", seconds), ("refine_of", refine_of), ("tweak", tweak)):
+        if value:
+            clip[key] = value
     (folder / ADDED / f"{add_id}.json").write_text(json.dumps(clip, indent=2))
     return clip
 
@@ -544,7 +557,8 @@ def tuning_record(manifest: dict, state: dict, *, job: dict, report: dict | None
             # asked = a sound the person asked for in the editor by describing it
             "origin": "asked" if clip.get("added") and whole and was is not None
                       else "cut" if not whole else "ai" if was is not None else "copy",
-            "asked_for": bool(clip.get("added")),
+            "asked_for": bool(clip.get("added")), "made_as": clip.get("made_as"),
+            "remade_from": clip.get("refine_of"), "tweak": clip.get("tweak"),
             "loudness": clip.get("loudness"), "in": piece["in"], "out": piece["out"],
             "start": round(clip["start"] + piece["in"], 4),
             "duration": round(piece["out"] - piece["in"], 4), "level_db": clip.get("level_db"),

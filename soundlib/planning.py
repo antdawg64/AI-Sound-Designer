@@ -720,3 +720,67 @@ def apply_pins(plan: dict, pins: dict, bursts: list[dict]) -> list[dict]:
                       "moved_seconds": round(exact - moment["time"], 3), "what_changes": pin.get("what_changes", "")})
         moment["planned_time"], moment["time"], moment["pinned"] = moment["time"], round(exact, 3), True
     return moved
+
+
+# --- A sound asked for in the editor -------------------------------------------------
+
+class WantedSound(BaseModel):
+    prompt: str
+    understood_as: str
+
+
+ADDED_SYSTEM = """You are a film sound editor. Someone watching their video has stopped on \
+one frame and typed, in their own rough words, a sound they want to hear starting there. \
+They have a clear sound in their head but are not good at describing sounds. You are \
+shown the frames around that instant. Your job is to write the description that will \
+get them that sound from a sound-effects model (it makes a sound from a short text, \
+and a library of real recordings is searched with the same text).
+
+Work out what they mean from their words AND from what is on screen: what object or \
+creature is making the sound, what it is made of, how big it is, what it is doing at \
+that instant, the surface or space it is in, and whether the video is realistic, a \
+cartoon, a toy world, slapstick, dramatic. Then write ONE description of the sound \
+itself, 8 to 20 words, in plain concrete words a sound library would use: the thing, \
+the material, the action, and the character of the sound (sharp, soft, hollow, wet, \
+rubbery, metallic, deep, tiny, cartoonish, and so on), with how it starts and ends when \
+that matters (a single hit, two quick squeaks, a rising whoosh that stops dead).
+
+Rules: keep exactly what they asked for; never swap it for a different sound because \
+the picture suggests one. Describe a sound, not a story or a picture. No music, no \
+speech and no background ambience unless they asked for it. If they wrote something \
+already precise, keep it and only add what makes it fit the scene. If they compare it \
+to something ("like a potato gun"), describe that sound in its own terms as well.
+
+When you are told what an earlier version was described as and how they want it \
+changed ("punchier", "softer", "more cartoony"), write the description for the changed \
+version: keep what the sound is and change its character clearly in that direction, \
+so the result is audibly different from before.
+
+Answer with prompt (the description) and understood_as (a few plain words on what you \
+took them to mean)."""
+
+
+def ask_added(frames: list[dict], words: str, seconds: float, summary: str = "",
+              previous: str | None = None, tweak: str | None = None, model: str | None = None) -> dict:
+    """The description to make an asked-for sound from. frames: {time, jpeg} around the
+    chosen instant. Returns {"prompt", "understood_as", "usage"}. Runs inside Modal."""
+    import anthropic
+
+    model = model or look_model()
+    content: list[dict] = []
+    if summary:
+        content.append({"type": "text", "text": f"What the video is: {summary}"})
+    for f in frames[:6]:
+        content.append({"type": "text", "text": f"{f['time']:.2f}s" + (" (the chosen instant)" if f.get("chosen") else "") + ":"})
+        content.append(_image(f["jpeg"]))
+    ask = f'They typed: "{words}". The sound will be about {seconds:g} seconds long.'
+    if previous and tweak:
+        ask += (f' An earlier version was made from this description: "{previous}". '
+                f'They want it changed like this: "{tweak}".')
+    content.append({"type": "text", "text": ask})
+    response = anthropic.Anthropic().messages.parse(
+        model=model, max_tokens=1000, system=ADDED_SYSTEM,
+        messages=[{"role": "user", "content": content}], output_format=WantedSound)
+    made = response.parsed_output
+    prompt = " ".join((made.prompt if made else words).split())[:300] or words
+    return {"prompt": prompt, "understood_as": made.understood_as if made else "", "usage": _usage([response], model)}

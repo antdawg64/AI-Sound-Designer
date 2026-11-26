@@ -581,13 +581,21 @@ DETAILS = ("minimal", "balanced", "rich")
 
 
 def add_sound(video: Path, out_dir: Path, backend, add_id: str, prompt: str, time_s: float,
-              seconds: float) -> tuple[dict, dict]:
+              seconds: float, describe=None, refine: dict | None = None) -> tuple[dict, dict]:
     """One more sound for a finished video, asked for in the editor by describing it.
 
     It is made the way a key moment is (a real recording when one clearly fits, otherwise
     generated from that piece of the video and the description), then slid so that the
     sound really starts on the chosen instant, and levelled to sit among the video's
     other key moments. Returns (the editor's clip, what it cost).
+
+    prompt: the person's own words. describe(frames, words, seconds, summary, previous,
+    tweak) -> {"prompt", "usage"}: Claude looks at the frames around the instant and
+    writes the description the sound is really made from (people who know what they
+    want to hear are often not good at describing it). Without it the words are used
+    as they are. refine: {"of": the sound being remade, "previous": what that one was
+    made from, "tweak": how it should change}; a remade sound is always generated, so
+    it cannot come back as the same recording.
     """
     sr = C.SAMPLE_RATE
     duration = float(editor.load_manifest(out_dir)["duration"])
@@ -599,10 +607,30 @@ def add_sound(video: Path, out_dir: Path, backend, add_id: str, prompt: str, tim
             "time": round(time_s, 3), "prompt": prompt, "gain_db": 0.0,
             "clip_start": round(start, 3), "clip_end": round(end, 3),
             "takes": max(int(C.FOLEY_CANDIDATES), int(C.SPOT_CANDIDATES))}
+    words, refine, extra = prompt, refine or {}, 0.0
+    if refine.get("tweak") and not describe:
+        prompt = f"{refine.get('previous') or words}, {refine['tweak']}"
+    if describe:
+        try:
+            around = [("before", time_s - 0.4), ("chosen", time_s), ("after", time_s + 0.3),
+                      ("after", min(time_s + max(0.7, seconds * 0.6), duration - 0.05))]
+            frames = media.frames_at(video, [max(0.0, t) for _, t in around], 640)
+            nearest = min(frames, key=lambda f: abs(f["time"] - time_s)) if frames else None
+            for f in frames:
+                f["chosen"] = f is nearest
+            summary = (editor.load_manifest(out_dir) or {}).get("summary", "")
+            told = describe(frames, words, seconds, summary, refine.get("previous"), refine.get("tweak"))
+            prompt, extra = told["prompt"], float(told["usage"].get("dollars", 0.0))
+        except Exception as exc:        # the sound is still made, from the words as typed
+            print(f"description not improved for {add_id}: {exc}", flush=True)
+    spot["prompt"] = prompt
     work = Path(tempfile.mkdtemp(prefix="add_sound_"))
+    usual_library = C.SFX_LIBRARY
     try:
         backend.connect()
         clip = media.cut_clip(video, spot, work / "clip.mp4")
+        if refine.get("tweak"):
+            C.override({"sfx_library": "off"})
         audio, got_sr = backend.effects(clip, prompt, spot)
         spot["audio"] = media.to_stereo_48k(audio, got_sr)
         _snap(video, spot, duration, pinned=True)       # its start lands on the chosen frame
@@ -622,15 +650,17 @@ def add_sound(video: Path, out_dir: Path, backend, add_id: str, prompt: str, tim
         lib = spot.get("library") or {}
         made = editor.save_added(
             out_dir, add_id, audio.astype(np.float32), start=spot["clip_start"], time_s=spot["time"],
-            prompt=prompt, duration=duration,
+            prompt=words, duration=duration, made_as=prompt, seconds=seconds,
+            refine_of=refine.get("of"), tweak=refine.get("tweak"),
             recording={k: lib.get(k) for k in ("source", "id", "title", "licence")} if lib.get("used") else None)
     finally:
+        C.override({"sfx_library": usual_library})
         shutil.rmtree(work, ignore_errors=True)
     rate = C.GPU_DOLLARS_PER_SECOND
     gpu = sum((c.get("gpu_seconds", 0) + c.get("load_seconds", 0)) * rate.get(c.get("gpu"), 0)
               for c in backend.gpu_calls)
     api = sum(float(c.get("dollars", 0)) for c in backend.api_calls)
-    cost = {"dollars": round(gpu + api + float(backend.claude.get("dollars", 0.0)), 4),
+    cost = {"dollars": round(gpu + api + extra + float(backend.claude.get("dollars", 0.0)), 4),
             "from_library": bool(lib.get("used"))}
     return made, cost
 

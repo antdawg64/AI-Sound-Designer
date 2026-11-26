@@ -72,6 +72,8 @@
   .panel .at { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; font-variant-numeric: tabular-nums; }
   .panel .at b { font: 600 15px ui-monospace, "SF Mono", Menlo, monospace; }
   .panel .at button, .seg button { padding: 7px 10px; font-size: 13px; }
+  .panel .at input[type=text] { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--ink); background: var(--bg);
+                                border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; }
   .seg { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
   .panel .status { font-size: 13px; min-height: 18px; }
   .making { border: 1px dashed var(--added); border-radius: 10px; padding: 10px 12px; margin: 4px 0 10px; font-size: 13px; }
@@ -854,6 +856,28 @@ function openAdd() {
   const text = $("add-text"); if (text && window.matchMedia("(min-width: 821px)").matches) text.focus();
 }
 const MAX_AT_ONCE = 5;
+let remakeNote = null;
+// Make a short sound again with a change ("punchier", "softer", or the person's own words).
+async function remake(p, tweak) {
+  if (pendingAdds.length >= MAX_AT_ONCE) { remakeNote = { bad: true, text: MAX_AT_ONCE + " sounds are being made. Please wait for one to finish." }; return drawPanel(); }
+  const src = byId[p.src];
+  const item = { prompt: src.label + " (" + tweak + ")", at: Math.max(0, p.start), id: null, replaces: p.src };
+  pendingAdds.push(item); remakeNote = null;
+  drawPanel(); drawPending();
+  try {
+    const r = await fetch(API + "/add", { method: "POST", headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ refine: p.src, tweak }) });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.detail || "We couldn't start remaking that sound. Please try again.");
+    item.id = body.id;
+    log("remake_ask", { clip: p.id, how: tweak });
+    setTimeout(() => checkAdded(item), 2500);
+  } catch (err) {
+    pendingAdds = pendingAdds.filter(x => x !== item);
+    remakeNote = { bad: true, text: err.message };
+    drawPending(); drawPanel();
+  }
+}
 async function askForSound() {
   const prompt = addDraft.text.trim().replace(/\s+/g, " ");
   if (prompt.length < 3) { addNote = { bad: true, text: "Please describe the sound in a few words." }; return drawPanel(); }
@@ -882,6 +906,10 @@ function redrawKeepingTyping() {
 }
 function addFailed(item, text) {
   pendingAdds = pendingAdds.filter(x => x !== item);
+  if (item.replaces) {
+    remakeNote = { bad: true, text: text || "We couldn't remake that sound. Please try again." };
+    drawPending(); return drawPanel();
+  }
   if (!addDraft.text.trim()) addDraft.text = item.prompt;         // so it can be tried again
   addNote = { bad: true, text: "“" + shortLabel(item.prompt, 50) + "”: " + (text || "we couldn't make that sound. Please try again.") };
   if (!selected) addOpen = true;
@@ -907,12 +935,23 @@ async function placeAdded(item, clip, first) {
   pendingAdds = pendingAdds.filter(x => x !== item);
   if (byId[clip.id]) { drawPending(); return redrawKeepingTyping(); }      // already on the timeline
   M.clips.push(clip); byId[clip.id] = clip; FIRST.push(first);
-  S.pieces.push(copyOf(first));
+  // A remake takes the old one's place: the old one goes to "Removed" (it can be put back).
+  const takeOver = st => {
+    const fresh = copyOf(first);
+    if (clip.refine_of) for (const old of st.pieces) if (old.src === clip.refine_of && !old.deleted) {
+      old.deleted = true; fresh.gain_db = old.gain_db; fresh.muted = old.muted;
+    }
+    st.pieces.push(fresh);
+  };
+  if (clip.refine_of) S.pieces.filter(q => q.src === clip.refine_of).forEach(q => stopSource(q.id));
+  takeOver(S);
   // It is part of the video from now on, so every earlier step of Undo gets it too.
   history = history.map(h => { const s = JSON.parse(h); s.pieces.push(copyOf(first)); return JSON.stringify(s); });
+  if (clip.refine_of) { history = history.slice(0, historyAt + 1); history.push(JSON.stringify(S)); historyAt = history.length - 1; }
   // Busy with something else (describing the next sound, working on another clip)? Then
   // the new sound just appears. Otherwise it is selected and the red line goes to it.
-  const busy = (addOpen && !selected && (addDraft.text.trim() || pendingAdds.length)) || (selected && selected !== first.id) || playing;
+  const mine = clip.refine_of && selected && piece(selected) && piece(selected).src === clip.refine_of;   // looking at the one it replaces
+  const busy = !mine && ((addOpen && !selected && (addDraft.text.trim() || pendingAdds.length)) || (selected && selected !== first.id) || playing);
   if (!busy) { addOpen = false; addNote = null; selected = first.id; }
   else if (addOpen && !pendingAdds.length) addNote = { text: "Your sound is on the timeline." };
   const box = $("add-text"), typing = box && document.activeElement === box, a = box && box.selectionStart, b = box && box.selectionEnd;
@@ -982,6 +1021,32 @@ function drawPanel() {
       if (playing) schedulePiece(p); commit("clip_reset", { clip: p.id });
     });
   panel.appendChild(row);
+  const src = byId[p.src];
+  if (src.made_as && src.made_as !== src.label) {
+    const made = el("p", "muted", "Made as: " + src.made_as + (src.recording ? " (a real recording)" : ""));
+    made.style.fontSize = "12px"; panel.appendChild(made);
+  }
+  if (CAN_ADD && kind === "moment") {       // not quite right? make it again, changed
+    const f2 = el("div", "field"); f2.appendChild(el("label", null, "Not quite right? Make it again…"));
+    const waiting = pendingAdds.some(x => x.replaces === p.src);
+    const chips = el("div", "seg");
+    for (const how of ["Punchier", "Softer", "Longer", "Shorter", "More cartoony", "More realistic", "Deeper", "Brighter"]) {
+      const b = el("button", null, how); b.disabled = waiting;
+      b.addEventListener("click", () => remake(p, how.toLowerCase()));
+      chips.appendChild(b);
+    }
+    f2.appendChild(chips);
+    const own = el("div", "at"), box = el("input"); box.type = "text"; box.maxLength = 80; box.id = "tweak-text";
+    box.placeholder = "or say it your way: more of a pop than a bang"; box.disabled = waiting;
+    const go = el("button", null, "Remake"); go.disabled = waiting;
+    const send = () => { if (box.value.trim().length >= 2) remake(p, box.value.trim()); };
+    go.addEventListener("click", send); box.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+    own.appendChild(box); own.appendChild(go); f2.appendChild(own);
+    const note = el("p", "status" + (waiting ? " muted" : remakeNote && remakeNote.bad ? " bad" : " muted"),
+      waiting ? "Making a new version… it takes this one's place when it is ready, and this one moves to Removed."
+              : remakeNote ? remakeNote.text : "");
+    f2.appendChild(note); panel.appendChild(f2);
+  }
   const tip = el("p", "muted", "To split, move the red line onto this sound where you want the cut.");
   tip.style.fontSize = "12px"; panel.appendChild(tip);
   drawPlayhead();
@@ -1237,7 +1302,7 @@ async function start() {
 
   // Sounds that were still being made when this page was opened or reloaded carry on.
   for (const a of info.pending || []) {
-    const item = { prompt: a.prompt, at: a.time, id: a.id };
+    const item = { prompt: a.prompt + (a.tweak ? " (" + a.tweak + ")" : ""), at: a.time, id: a.id };
     pendingAdds.push(item); setTimeout(() => checkAdded(item), 1500);
   }
   if (pendingAdds.length && CAN_ADD) addOpen = true;

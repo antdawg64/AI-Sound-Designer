@@ -112,15 +112,30 @@ def attach(api, *, jobs: Path, get_job: Callable[[str], dict | None], refresh: C
         job, out, manifest = editable(job_id)
         if adds is None or start_add is None:
             raise HTTPException(404, "Adding sounds isn't available here.")
-        prompt = " ".join(str(body.get("prompt", "")).split())[:200]
-        if len(prompt) < 3:
-            raise HTTPException(400, "Please describe the sound in a few words.")
-        try:
-            at, seconds = float(body.get("time")), float(body.get("seconds"))
-        except (TypeError, ValueError):
-            raise HTTPException(400, "Please choose where the sound goes.")
-        if not 0 <= at <= manifest["duration"] or seconds not in [float(s) for s in C.EDITOR_ADD_SECONDS]:
-            raise HTTPException(400, "Please choose where the sound goes.")
+        lengths = sorted(float(s) for s in C.EDITOR_ADD_SECONDS)
+        refine = None
+        if body.get("refine"):
+            # Make one of the video's short sounds again, changed ("punchier", "softer").
+            old = next((c for c in manifest["clips"] if c["id"] == body.get("refine")), None)
+            tweak = " ".join(str(body.get("tweak", "")).split())[:80]
+            if old is None or old["kind"] != "moment" or len(tweak) < 2:
+                raise HTTPException(400, "Please say how the sound should change.")
+            prompt = old["label"].split(": ", 1)[-1] if old.get("role") in ("whoosh", "detail") else old["label"]
+            at = float(old.get("time", old["start"]) if old.get("role", "main") == "main" else old["start"])
+            seconds = float(old.get("seconds") or min(lengths, key=lambda s: abs(s - old["duration"])))
+            step = 1 if "longer" in tweak.lower() else -1 if "shorter" in tweak.lower() else 0
+            seconds = lengths[min(max(lengths.index(seconds) + step, 0), len(lengths) - 1)] if seconds in lengths else seconds
+            refine = {"of": old["id"], "previous": old.get("made_as") or prompt, "tweak": tweak}
+        else:
+            prompt = " ".join(str(body.get("prompt", "")).split())[:200]
+            if len(prompt) < 3:
+                raise HTTPException(400, "Please describe the sound in a few words.")
+            try:
+                at, seconds = float(body.get("time")), float(body.get("seconds"))
+            except (TypeError, ValueError):
+                raise HTTPException(400, "Please choose where the sound goes.")
+            if not 0 <= at <= manifest["duration"] or seconds not in lengths:
+                raise HTTPException(400, "Please choose where the sound goes.")
         mine = dict(adds.get(job_id) or {})
         under_way = [a for a in mine.values() if a.get("state") == "working" and time.time() - a["asked"] < 900]
         if len(under_way) >= 5:
@@ -129,11 +144,11 @@ def attach(api, *, jobs: Path, get_job: Callable[[str], dict | None], refresh: C
         if have >= int(C.EDITOR_ADD_MAX):
             raise HTTPException(429, f"You can add up to {int(C.EDITOR_ADD_MAX)} sounds to one video.")
         add_id = "a" + secrets.token_hex(4)
-        ask = {"prompt": prompt, "time": round(at, 4), "seconds": seconds}
+        ask = {"prompt": prompt, "time": round(at, 4), "seconds": seconds, **({"refine": refine} if refine else {})}
         mine[add_id] = {"state": "working", "asked": time.time(), **ask}
         adds[job_id] = mine
         start_add(job_id, add_id, ask)
-        return {"id": add_id}
+        return {"id": add_id, "prompt": prompt, "time": ask["time"]}
 
     @api.get("/api/edit/{job_id}/add/{add_id}")
     def edit_added(job_id: str, add_id: str):
@@ -171,7 +186,8 @@ def attach(api, *, jobs: Path, get_job: Callable[[str], dict | None], refresh: C
             fps = 30.0
         # Sounds still being made (asked for before this page was opened or reloaded).
         have = {c["id"] for c in manifest["clips"]}
-        pending = [{"id": i, "prompt": a.get("prompt", ""), "time": a.get("time", 0.0)}
+        pending = [{"id": i, "prompt": a.get("prompt", ""), "time": a.get("time", 0.0),
+                    "tweak": (a.get("refine") or {}).get("tweak")}
                    for i, a in ((adds.get(job_id) or {}) if adds is not None else {}).items()
                    if a.get("state") == "working" and time.time() - a.get("asked", 0) < 900 and i not in have]
         return {"job": {k: job[k] for k in ("id", "name", "seconds", "test_tones") if k in job},

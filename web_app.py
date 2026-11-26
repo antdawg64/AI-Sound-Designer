@@ -160,6 +160,25 @@ def cleanup() -> int:
     return removed
 
 
+claude_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install("anthropic>=2.14", "pydantic>=2", "numpy")
+    .env({"SOUND_SETTINGS": "/root/settings.json"})
+    .add_local_dir(ROOT / "soundlib", "/root/soundlib", ignore=["**/__pycache__"])
+    .add_local_file(C.SETTINGS_FILE, "/root/settings.json")
+)
+
+
+@app.function(image=claude_image, secrets=[modal.Secret.from_name(C.CLAUDE_SECRET_NAME)], timeout=300)
+def describe_sound(frames: list[dict], words: str, seconds: float, summary: str = "",
+                   previous: str | None = None, tweak: str | None = None) -> dict:
+    """Claude looks at the chosen frame and turns someone's rough words into the description
+    a sound asked for in the editor is made from."""
+    from soundlib.planning import ask_added
+
+    return ask_added(frames, words, seconds, summary, previous, tweak)
+
+
 @app.function(image=image, volumes={str(JOBS): jobs_volume}, cpu=2.0, memory=4096, timeout=900,
               max_containers=6)
 def add_sound(job_id: str, add_id: str, ask: dict) -> dict:
@@ -177,7 +196,9 @@ def add_sound(job_id: str, add_id: str, ask: dict) -> dict:
         job = job_status.get(job_id, {})
         backend = M.TestTones() if job.get("test_tones") else M.Cloud()
         clip, cost = M.add_sound(JOBS / job_id / f"input{job.get('ext', '.mp4')}", JOBS / job_id / "out",
-                                 backend, add_id, ask["prompt"], ask["time"], ask["seconds"])
+                                 backend, add_id, ask["prompt"], ask["time"], ask["seconds"],
+                                 describe=None if job.get("test_tones") else describe_sound.remote,
+                                 refine=ask.get("refine"))
         jobs_volume.commit()
         note(state="done", dollars=cost["dollars"], from_library=cost["from_library"])
         _update(job_id, added_sounds=int(job_status.get(job_id, {}).get("added_sounds", 0)) + 1,
