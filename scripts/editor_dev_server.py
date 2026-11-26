@@ -47,7 +47,28 @@ def make_app(out_dir: Path, video: Path, records: Path) -> FastAPI:
             raise HTTPException(404)
         return FileResponse(out_dir / "final.mp4", media_type="video/mp4")
 
+    adds: dict = {}
+
+    def start_add(job_id: str, add_id: str, ask: dict) -> None:
+        """Test-tone stand-in for the real thing: a noise, a few seconds later."""
+        import threading
+        import time
+
+        import make_sound as M
+
+        def work():
+            time.sleep(3)
+            try:
+                M.add_sound(video, out_dir, M.TestTones(), add_id, ask["prompt"], ask["time"], ask["seconds"])
+                adds[job_id][add_id]["state"] = "done"
+            except Exception as exc:
+                print("add failed:", exc, flush=True)
+                adds[job_id][add_id] |= {"state": "failed", "error": "We couldn't make that sound."}
+
+        threading.Thread(target=work, daemon=True).start()
+
     editor_api.attach(api, jobs=jobs, get_job=lambda i: job if i == "demo" else None,
+                      adds=adds, start_add=start_add,
                       refresh=lambda: None, commit=lambda: None, keep_tuning_record=keep,
                       downloads={"final.mp4": ("with-sound.mp4", "video/mp4"),
                                  "music.wav": ("music.wav", "audio/wav"),

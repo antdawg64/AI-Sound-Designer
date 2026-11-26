@@ -10,6 +10,8 @@ for all the effects and one for the music.
   render()         - makes a new final.mp4 / sfx.wav / music.wav from an edit
   tuning_record()  - one self-contained record of what a person changed, for
                      analyze_edits.py to learn better defaults from
+  save_added()     - keeps a sound the person asked for in the editor ("Add a sound")
+  preview_video()  - a small copy of the video that jumps to any frame at once
 
 An "edit" (the state) is the list of pieces on the timeline. A piece plays part of one
 of the saved effect files (its source), from `in` to `out` seconds inside that file,
@@ -42,6 +44,8 @@ MANIFEST = "editor.json"
 STATE = "edit.json"
 MUSIC_STEM = "music_stem.flac"
 EDITED = "edited"            # where render() writes, inside out/
+ADDED = "added"              # inside editor/: one small file per sound the person added
+PREVIEW = "preview.mp4"      # inside editor/: the picture the editor shows
 GAIN_RANGE_DB = (-40.0, 12.0)
 SCHEMA = 2
 EDGE = 0.005              # half the length of the fade at a cut, in seconds
@@ -200,6 +204,7 @@ def load_manifest(out_dir: Path) -> dict | None:
     if not path.exists():
         return None
     manifest = json.loads(path.read_text())
+    manifest["clips"] = manifest["clips"] + added_clips(out_dir)
     if "shot_labels" not in manifest:      # a job made before clips were split by shot
         plan = out_dir / "plan.json"
         manifest["shot_labels"] = (_shot_labels(json.loads(plan.read_text()), manifest["shots"])
@@ -210,13 +215,17 @@ def load_manifest(out_dir: Path) -> dict | None:
 # --- Pieces: what is on the timeline ---------------------------------------------------
 
 def initial_pieces(manifest: dict) -> list[dict]:
-    """The timeline as the AI made it: each key moment is one piece, and each background
-    clip (which can span several shots) is cut into one piece per shot."""
+    """The timeline as the AI made it: each key moment is one piece, each background
+    sound made on its own is one piece, and a mixed background clip (which can span
+    several shots) is cut into one piece per shot."""
     labels, shots = manifest.get("shot_labels") or [], manifest["shots"]
     pieces = []
     for clip in manifest["clips"]:
         cuts = []
-        if clip["kind"] == "background":
+        # A sound made on its own (one source, like a motor running through several
+        # shots) stays in one piece; an old-style stretch with several sounds mixed in
+        # it is cut per shot.
+        if clip["kind"] == "background" and not clip.get("source"):
             for n in clip.get("shots", [])[1:]:
                 at = shots[n]["start"] - clip["start"] if n < len(shots) else -1
                 if 0.2 < at < clip["duration"] - 0.2 and (not cuts or at - cuts[-1] > 0.2):
@@ -314,7 +323,17 @@ def load_state(out_dir: Path, manifest: dict) -> dict:
         saved = json.loads(path.read_text()) if path.exists() else {}
     except ValueError:
         saved = {}
-    return clean_state(saved, manifest)
+    state = clean_state(saved, manifest)
+    # A sound added in the editor whose page was closed before it arrived: put it on the
+    # timeline now, where it was asked for.
+    placed = {p["src"] for p in state["pieces"]}
+    state["pieces"] += [p for p in initial_pieces(manifest)
+                        if p["src"] not in placed and sources_added(manifest, p["src"])]
+    return state
+
+
+def sources_added(manifest: dict, src: str) -> bool:
+    return any(c["id"] == src and c.get("added") for c in manifest["clips"])
 
 
 def save_state(out_dir: Path, state: dict) -> None:
@@ -418,6 +437,88 @@ def render(out_dir: Path, video: Path, state: dict) -> dict:
         shutil.rmtree(work, ignore_errors=True)
 
 
+# --- Sounds added in the editor ---------------------------------------------------------
+
+def added_clips(out_dir: Path) -> list[dict]:
+    """The sounds the person added, oldest first. Each has its own small file, so two
+    being made at once never overwrite each other."""
+    clips = []
+    for path in sorted((out_dir / FOLDER / ADDED).glob("*.json")):
+        try:
+            clip = json.loads(path.read_text())
+        except ValueError:
+            continue
+        if (out_dir / FOLDER / clip["file"]).exists():
+            clips.append(clip)
+    return sorted(clips, key=lambda c: c.get("created", 0))
+
+
+def moment_level_db(out_dir: Path) -> float:
+    """How loud the loud part of a typical key moment of this video is, so an added sound
+    sits among them. Without key moments: a little over the background sounds."""
+    path = out_dir / MANIFEST
+    clips = json.loads(path.read_text())["clips"] if path.exists() else []
+
+    def levels(wanted) -> list[float]:
+        found = []
+        for clip in clips:
+            if wanted(clip) and (out_dir / FOLDER / clip["file"]).exists():
+                audio = read_audio(out_dir / FOLDER / clip["file"])[0]
+                found.append(mixing._loud_part_db(audio.mean(axis=1)))
+        return [v for v in found if v > -90]
+
+    moments = levels(lambda c: c["kind"] == "moment" and c.get("role", "main") == "main")
+    if moments:
+        return float(np.median(moments))
+    beds = levels(lambda c: c["kind"] == "background")
+    return float(np.median(beds)) + 3.0 if beds else -30.0
+
+
+def save_added(out_dir: Path, add_id: str, audio: np.ndarray, *, start: float, time_s: float,
+               prompt: str, duration: float, recording: dict | None = None) -> dict:
+    """Keep one added sound (stereo, 48 kHz, already levelled) and return its clip, shaped
+    like the key moments the AI made. `start`: where `audio` begins in the video."""
+    sr = C.SAMPLE_RATE
+    if start < 0:
+        audio, start = audio[int(round(-start * sr)):], 0.0
+    audio = audio[: max(0, int(round((duration - start) * sr)))]
+    heard = np.flatnonzero(np.abs(audio).max(axis=1) > 1e-5) if len(audio) else []
+    if not len(heard):
+        raise ValueError("the sound came out silent")
+    a, b = int(heard[0]), int(heard[-1]) + 1
+    folder = out_dir / FOLDER
+    (folder / ADDED).mkdir(parents=True, exist_ok=True)
+    _write_flac(folder / f"{add_id}.flac", audio[a:b])
+    clip = {"id": add_id, "kind": "moment", "role": "main", "label": prompt, "added": True,
+            "start": round(start + a / sr, 6), "duration": round((b - a) / sr, 6),
+            "file": f"{add_id}.flac", "level_db": _level_db(audio[a:b]), "time": round(time_s, 4),
+            "loudness": "medium", "created": time.time()}
+    if recording:
+        clip["recording"] = recording
+    (folder / ADDED / f"{add_id}.json").write_text(json.dumps(clip, indent=2))
+    return clip
+
+
+# --- The picture the editor shows -------------------------------------------------------
+
+def preview_video(video: Path, out_dir: Path) -> Path:
+    """A small, silent copy of the video in which every few frames can be shown on their
+    own. The finished video is made to be watched from start to end; jumping around in it
+    is slow (worst on phones). In this copy the picture follows the playhead at once."""
+    target = out_dir / FOLDER / PREVIEW
+    if target.exists():
+        return target
+    s = int(C.EDITOR_PREVIEW_SHORT_SIDE)
+    part = target.with_name(f"preview-{time.time_ns()}.part.mp4")
+    run(["ffmpeg", "-y", "-v", "error", "-i", video, "-an",
+         "-vf", f"scale='if(gt(iw,ih),-2,min({s},ih))':'if(gt(iw,ih),min({s},ih),-2)'",
+         "-fps_mode", "passthrough", "-c:v", "libx264", "-preset", "veryfast", "-crf", "25",
+         "-g", int(C.EDITOR_PREVIEW_KEY_EVERY), "-keyint_min", 1, "-sc_threshold", 0, "-bf", 0,
+         "-pix_fmt", "yuv420p", "-movflags", "+faststart", part])
+    part.replace(target)
+    return target
+
+
 # --- Tuning data ----------------------------------------------------------------------
 
 def tuning_record(manifest: dict, state: dict, *, job: dict, report: dict | None,
@@ -439,8 +540,11 @@ def tuning_record(manifest: dict, state: dict, *, job: dict, report: dict | None
         clips.append({
             "id": piece["id"], "src": piece["src"], "kind": clip["kind"], "label": piece["label"],
             "role": clip.get("role"), "moment": clip.get("moment"),
-            # ai = as the AI made it; cut = the person cut it; copy = the person duplicated it
-            "origin": "cut" if not whole else "ai" if was is not None else "copy",
+            # ai = as the AI made it; cut = the person cut it; copy = the person duplicated it;
+            # asked = a sound the person asked for in the editor by describing it
+            "origin": "asked" if clip.get("added") and whole and was is not None
+                      else "cut" if not whole else "ai" if was is not None else "copy",
+            "asked_for": bool(clip.get("added")),
             "loudness": clip.get("loudness"), "in": piece["in"], "out": piece["out"],
             "start": round(clip["start"] + piece["in"], 4),
             "duration": round(piece["out"] - piece["in"], 4), "level_db": clip.get("level_db"),

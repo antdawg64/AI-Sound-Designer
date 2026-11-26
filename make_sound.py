@@ -580,6 +580,61 @@ def _try_lyria(backend, caption: str, bpm: int, cues: dict | None, duration: flo
 DETAILS = ("minimal", "balanced", "rich")
 
 
+def add_sound(video: Path, out_dir: Path, backend, add_id: str, prompt: str, time_s: float,
+              seconds: float) -> tuple[dict, dict]:
+    """One more sound for a finished video, asked for in the editor by describing it.
+
+    It is made the way a key moment is (a real recording when one clearly fits, otherwise
+    generated from that piece of the video and the description), then slid so that the
+    sound really starts on the chosen instant, and levelled to sit among the video's
+    other key moments. Returns (the editor's clip, what it cost).
+    """
+    sr = C.SAMPLE_RATE
+    duration = float(editor.load_manifest(out_dir)["duration"])
+    time_s = float(min(max(time_s, 0.0), duration - 0.05))
+    start = max(0.0, time_s - float(C.SPOT_BEFORE_SECONDS))
+    end = min(duration, start + float(seconds))
+    start = max(0.0, min(start, end - 1.0))            # near the very end: still a full second
+    spot = {"index": 1200 + int(hashlib.sha256(add_id.encode()).hexdigest(), 16) % 700,
+            "time": round(time_s, 3), "prompt": prompt, "gain_db": 0.0,
+            "clip_start": round(start, 3), "clip_end": round(end, 3),
+            "takes": max(int(C.FOLEY_CANDIDATES), int(C.SPOT_CANDIDATES))}
+    work = Path(tempfile.mkdtemp(prefix="add_sound_"))
+    try:
+        backend.connect()
+        clip = media.cut_clip(video, spot, work / "clip.mp4")
+        audio, got_sr = backend.effects(clip, prompt, spot)
+        spot["audio"] = media.to_stereo_48k(audio, got_sr)
+        _snap(video, spot, duration, pinned=True)       # its start lands on the chosen frame
+        audio = mixing.clean_clip(mixing.level_clip(spot["audio"]), moment=seconds <= 2.0)
+        audio = audio.astype(np.float32).copy()
+        fade_in, fade_out = min(int(0.03 * sr), len(audio) // 2), min(int(0.3 * sr), len(audio) // 2)
+        if fade_in:
+            audio[:fade_in] *= np.linspace(0.0, 1.0, fade_in, dtype=np.float32)[:, None]
+        if fade_out:
+            audio[-fade_out:] *= np.linspace(1.0, 0.0, fade_out, dtype=np.float32)[:, None]
+        now = mixing._loud_part_db(audio.mean(axis=1))
+        if now > -90:
+            audio = audio * 10 ** ((editor.moment_level_db(out_dir) - now) / 20)
+        peak = float(np.abs(audio).max()) if len(audio) else 0.0
+        if peak > 0.89:
+            audio = audio * (0.89 / peak)
+        lib = spot.get("library") or {}
+        made = editor.save_added(
+            out_dir, add_id, audio.astype(np.float32), start=spot["clip_start"], time_s=spot["time"],
+            prompt=prompt, duration=duration,
+            recording={k: lib.get(k) for k in ("source", "id", "title", "licence")} if lib.get("used") else None)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    rate = C.GPU_DOLLARS_PER_SECOND
+    gpu = sum((c.get("gpu_seconds", 0) + c.get("load_seconds", 0)) * rate.get(c.get("gpu"), 0)
+              for c in backend.gpu_calls)
+    api = sum(float(c.get("dollars", 0)) for c in backend.api_calls)
+    cost = {"dollars": round(gpu + api + float(backend.claude.get("dollars", 0.0)), 4),
+            "from_library": bool(lib.get("used"))}
+    return made, cost
+
+
 def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                vibe: str | None = None, music_flavour: str = "", parts: str = "both",
                detail: str | None = None) -> dict:

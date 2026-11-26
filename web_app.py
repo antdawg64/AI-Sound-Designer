@@ -153,9 +153,40 @@ def cleanup() -> int:
         if folder.is_dir() and folder.stat().st_mtime < cutoff:
             shutil.rmtree(folder, ignore_errors=True)
             job_status.pop(folder.name, None)
+            job_status.pop(f"adds:{folder.name}", None)
             removed += 1
     jobs_volume.commit()
     return removed
+
+
+@app.function(image=image, volumes={str(JOBS): jobs_volume}, cpu=2.0, memory=4096, timeout=900,
+              max_containers=4)
+def add_sound(job_id: str, add_id: str, ask: dict) -> dict:
+    """Make one more sound for a finished video, asked for in the editor by describing it."""
+    import traceback
+
+    import make_sound as M
+
+    def note(**changes) -> None:
+        mine = dict(job_status.get(f"adds:{job_id}") or {})
+        mine[add_id] = {**mine.get(add_id, {}), **changes}
+        job_status[f"adds:{job_id}"] = mine
+
+    try:
+        jobs_volume.reload()
+        job = job_status.get(job_id, {})
+        backend = M.TestTones() if job.get("test_tones") else M.Cloud()
+        clip, cost = M.add_sound(JOBS / job_id / f"input{job.get('ext', '.mp4')}", JOBS / job_id / "out",
+                                 backend, add_id, ask["prompt"], ask["time"], ask["seconds"])
+        jobs_volume.commit()
+        note(state="done", dollars=cost["dollars"], from_library=cost["from_library"])
+        _update(job_id, added_sounds=int(job_status.get(job_id, {}).get("added_sounds", 0)) + 1,
+                added_cost=round(float(job_status.get(job_id, {}).get("added_cost", 0)) + cost["dollars"], 4))
+        return {"made": True, **cost}
+    except Exception as exc:
+        traceback.print_exc()
+        note(state="failed", error="We couldn't make that sound. Please try again, or describe it differently.")
+        return {"made": False, "error": str(exc)[:300]}
 
 
 # --- What people change in the editor ----------------------------------------------
@@ -168,6 +199,16 @@ def export_edits() -> list[dict]:
     from soundlib import insights
 
     return insights.read_records(Path("/tuning"))
+
+
+class _Adds:
+    """How the sounds added in the editor are coming along, kept with the job statuses."""
+
+    def get(self, job_id: str):
+        return job_status.get(f"adds:{job_id}")
+
+    def __setitem__(self, job_id: str, value: dict) -> None:
+        job_status[f"adds:{job_id}"] = value
 
 
 def cost_summary(cost: dict) -> dict:
@@ -331,6 +372,14 @@ def web():
         job_status[job["id"]] = job | {"cost_parts": parts}
         return parts
 
+    def with_added(parts: dict | None, job: dict) -> dict | None:
+        """The cost with the sounds added in the editor afterwards counted in."""
+        extra = round(float(job.get("added_cost") or 0) * 100, 1)
+        if not parts or not job.get("added_sounds"):
+            return parts
+        return parts | {"credits": round(parts["credits"] + extra, 1), "added": extra,
+                        "added_sounds": int(job["added_sounds"])}
+
     @api.get("/api/my-videos")
     def my_videos(request: Request):
         """The signed-in person's videos that still exist, newest first."""
@@ -360,7 +409,7 @@ def web():
                   "vibe", "parts", "error", "wall_seconds", "test_tones")
         reply = {k: job[k] for k in public if k in job} | {"now": time.time()}
         if job.get("state") == "done" and is_site_owner(request):   # costs: for the owner's eyes only
-            reply["cost"] = cost_of(job)
+            reply["cost"] = with_added(cost_of(job), job)
         return reply
 
     @api.get("/api/job/{job_id}/{name}")
@@ -400,7 +449,8 @@ def web():
 
     editor_api.attach(api, jobs=JOBS, get_job=job_status.get, refresh=refresh,
                       commit=jobs_volume.commit, keep_tuning_record=keep_tuning_record,
-                      downloads=DOWNLOADS, web_folder=Path("/root/web"))
+                      downloads=DOWNLOADS, web_folder=Path("/root/web"),
+                      adds=_Adds(), start_add=lambda job, add, ask: add_sound.spawn(job, add, ask))
 
     # Insights: what people change in the editor, for the owner only.
     import hashlib

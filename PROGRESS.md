@@ -969,3 +969,29 @@ New defaults written to `settings.json`:
 - Ideas not done: wake the graphics computers while Claude plans (saves about 40 s more),
   let the recordings search answer several asks at once (`modal_library.py`).
 
+
+## Editor: add a sound by describing it, exact frames, tidier timeline, phones (Nov 26, 2026)
+
+- **Add a sound**: "＋ Add a sound" in the editor. Put the red line on a frame, type what the
+  sound is, pick a length (1.5, 3 or 6 s). It is made like a key moment (real recording from
+  the library first, otherwise generated from that piece of the video), slid so it starts
+  on the chosen frame, levelled to the video's other key moments, and appears on its own
+  row "Added by you". Code: `make_sound.add_sound`, `editor.save_added` (one small file per
+  added sound in `out/editor/added/`), Modal function `add_sound` in `web_app.py`,
+  endpoints `POST /api/edit/<job>/add` and `GET /api/edit/<job>/add/<id>`. Limit: settings
+  `editor_add_max` (20 per video). Measured: library sound about 1 cent in 4 to 20 s;
+  generated about 2 cents, 40 s with a cold GPU. The cost is added to the job
+  (`added_cost`, shown to the owner as "Sounds added in the editor").
+- **Exact frames**: while paused the red line always sits on a whole frame and the picture
+  shows that frame; "‹ Frame" / "Frame ›" buttons, keys `,` `.` and the arrow keys. The
+  editor shows a small copy of the video made for jumping around (`editor.preview_video`,
+  `GET /api/edit/<job>/video`, made the first time the editor is opened, about 4 s).
+- **Timeline rows**: one named row per kind of sound. A background sound that returns (the
+  vacuum motor) always sits on its own row; one-off sounds share "Other sounds". Sounds
+  made on their own are no longer cut at every scene. A "Scene 1, 2, 3" strip under the
+  time ruler.
+- **Phones**: video stays at the top while the timeline scrolls under it, the picture is
+  kept in step with the sound by gently speeding or slowing it instead of jumping (jumping
+  is what stuttered on iPhone), sound plays with the ring switch on silent, drag the top
+  strip to move the red line and drag the rows to scroll sideways.
+- Not tested on a real iPhone (only at phone size in a desktop browser).

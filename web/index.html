@@ -656,7 +656,7 @@ function finished(id, job) {
   if (job.cost) {
     const c = job.cost, rows = $("cost-rows"); rows.textContent = "";
     $("cost-total").textContent = "This video cost " + credits(c.credits) + " ($" + (c.credits / 100).toFixed(2) + ")";
-    for (const [label, n] of [["Planning the sound (Claude)", c.planning], ["Music", c.music], ["Sound effects", c.effects], ["Other", c.other]]) {
+    for (const [label, n] of [["Planning the sound (Claude)", c.planning], ["Music", c.music], ["Sound effects", c.effects], ["Sounds added in the editor" + (c.added_sounds ? " (" + c.added_sounds + ")" : ""), c.added], ["Other", c.other]]) {
       if (!n) continue;
       const line = document.createElement("div"); line.className = "line";
       for (const t of [label, credits(n)]) { const x = document.createElement("span"); x.textContent = t; line.appendChild(x); }

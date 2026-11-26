@@ -87,6 +87,7 @@ def analyze(jobs: list[dict], min_jobs: int) -> tuple[list[dict], list[dict], li
             "clips": len(job["clips"]),
             "cut_by_person": sum(c.get("origin") == "cut" for c in job["clips"]),
             "copies": sum(c.get("origin") == "copy" for c in job["clips"]),
+            "asked_for": sum(c.get("origin") == "asked" for c in job["clips"]),
             "deleted": sum(c["deleted"] for c in job["clips"]),
             "muted": sum(c["muted"] for c in job["clips"]),
             "moved": sum(abs(c["moved_seconds"]) > 0.02 for c in job["clips"]),
@@ -137,7 +138,7 @@ def analyze(jobs: list[dict], min_jobs: int) -> tuple[list[dict], list[dict], li
     for kind, title in (("moment", "Key moments"), ("whoosh", "Lead-in layers of key moments"),
                         ("detail", "Detail layers of key moments"), ("background", "Background sounds"),
                         ("ambience", "The steady background of the place")):
-        mine = [c for c in clip_rows if c["group"] == kind and c.get("origin") != "copy"]
+        mine = [c for c in clip_rows if c["group"] == kind and c.get("origin") not in ("copy", "asked")]
         if not mine:
             continue
         gone = [c for c in mine if c["removed"]]

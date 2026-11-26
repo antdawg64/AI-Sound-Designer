@@ -193,3 +193,32 @@ def test_one_sharp_sound_does_not_quieten_the_rest():
     def level(x): return 10 * np.log10(np.mean(x[: 2 * sr] ** 2) + 1e-12)
     assert abs(level(both[0]) - level(quiet[0])) < 3.0          # the steady sound keeps its level
     assert np.abs(sum(both)).max() <= 10 ** (-1.4 / 20)
+
+
+def test_a_sound_added_in_the_editor_joins_the_timeline(tmp_path):
+    segments, spots, levels = _pieces()
+    layers = mixing.effects_layers(segments, spots, levels, "small room", DURATION, -30.0)
+    shots = [{"start": 0.0, "end": 3.0}, {"start": 3.0, "end": 6.0}]
+    plan = {"summary": "", "shots": [], "moments": []}
+    editor.build(tmp_path, segments=segments, spots=spots, layers=layers, music=_noise(DURATION, 9),
+                 voice_wav=None, shots=shots, duration=DURATION, plan=plan, caption="", parts="both",
+                 work=tmp_path)
+    before = editor.load_manifest(tmp_path)
+    state = editor.load_state(tmp_path, before)
+    editor.save_state(tmp_path, state)                 # an edit saved before the sound was added
+
+    sound = np.concatenate([np.zeros((2400, 2), np.float32), _noise(1.0, 5) * 0.1])
+    clip = editor.save_added(tmp_path, "atest1", sound, start=4.0, time_s=4.05, prompt="door slam",
+                             duration=DURATION)
+    assert clip["added"] and abs(clip["start"] - 4.05) < 1e-3 and abs(clip["duration"] - 1.0) < 1e-3
+
+    manifest = editor.load_manifest(tmp_path)
+    assert [c["id"] for c in manifest["clips"]][-1] == "atest1"
+    loaded = editor.load_state(tmp_path, manifest)     # the saved edit gains the new sound
+    assert len(loaded["pieces"]) == len(state["pieces"]) + 1 and loaded["pieces"][-1]["src"] == "atest1"
+    with_it = editor.effects_track(tmp_path, manifest, loaded)
+    without = editor.effects_track(tmp_path, before, state)
+    a, b = int(4.2 * SR), int(4.8 * SR)
+    assert np.abs(with_it[a:b] - without[a:b]).max() > 0.01
+    record = editor.tuning_record(manifest, loaded, job={"id": "j"}, report=None, session="s", events=[])
+    assert record["clips"][-1]["origin"] == "asked"
