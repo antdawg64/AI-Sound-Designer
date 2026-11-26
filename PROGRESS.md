@@ -2,6 +2,19 @@
 
 _Last updated: 2026-11-25_
 
+## Round 19 (2026-11-26): the round 18 result for less (waiting for Anthony's ratings)
+
+Anthony chose "Cut the cost first, then go live". Measured without sound first (frame choice
+against Opus at full size, 24 fps video): Opus with small pictures within 1 frame on 8 of 10
+moments; Sonnet 5.5 looser (some 3 to 9 frames off); Haiku 5.5 unreliable on timing (7 to 11
+frames off on a third); `look_effort: low` finds fewer actions (2 to 4 instead of 6 to 7) for
+little saving. The second look is not repeatable: each run finds a somewhat different set.
+New settings: `look_model`, `look_effort`, picture sizes. Tiles (run `20261126-r19`): round 18
+winner (37 cents extra), smaller pictures on Opus (18 cents), smaller pictures on Sonnet (12 cents).
+Files in /mnt/project-files/round19/. Cost $0.70 plus about $0.60 of measuring.
+After his scores: write the winner's settings into settings.json, merge 7q9yop, then deploy live
+(his card answer covers going live once the cost is cut and holds up).
+
 ## Round 18 (2026-11-26): missing sounds and exact timing (rated, applied on the branch, not live)
 
 Anthony: "i feel like we're missing sound fx" and "timing isn't perfect"; yes to a second close
