@@ -15,7 +15,20 @@ against older outputs from round 17 on are not like for like, and the new file h
 cached results, so its first run regenerates everything.
 
 
-## Real recordings library (2026-11-26, round 16 rated: on by default in settings, not live yet)
+## Real recordings library (LIVE since 2026-11-26 06:52 UTC)
+
+**Live**: Anthony wrote "launch this on the site" on 2026-11-26 06:45 UTC. Deployed from
+`claude/project-thread-aw3m54` at ebb4793 (contains 1d0ddk at 46364b4: second look, frame
+timing, smaller pictures; and 7q9yop at 203bdb7: My videos, account menu): apps
+`ai-sound-designer`, `-stable`, `-web`, and the new `ai-sound-designer-library`. Live
+settings are the round 17 winner (scored 4 against 2): `sfx_library` on, `library_judge`
+claude_library_first, `sfx_sources` separate, `sfx_lufs_no_voice` -30, `shot_level_db`
+quiet -4 / medium -2. FSD50K is credited in the site footer. Checked: footer shows the
+credit, and the reference video through the live sound engine used 18 real recordings out
+of 22 sounds, all checks passed, $0.61 per 28 s video. Not checked: a job through the live
+web page itself (needs a signed-in account). **Any later deploy must merge aw3m54 first.**
+The notes below this line are the history and were written before going live.
+
 
 Branch `claude/project-thread-aw3m54` (built on the layering branch at 7c8e047). Anthony
 asked for real recordings for common sounds ("yes on 6 too"). Round 16 rated 2026-11-26:
