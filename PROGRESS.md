@@ -2,6 +2,18 @@
 
 _Last updated: 2026-11-26_
 
+## Round 20 (2026-11-26): "Sound detail" choice, Minimal / Balanced / Rich (waiting for Anthony's ratings)
+
+Anthony said yes to letting the person choose how many effects are added. Setting `sound_detail`
+with `sound_detail_levels` (each level is a set of setting changes plus `plan_hint`, an extra line
+for Claude's first plan); `make_sound(..., detail=)`; web upload field `detail` and a three-way
+choice in web/index.html under "What sound do you want?" (hidden for music only). Branch now
+contains aw3m54 (real recordings, live) and 7q9yop a43e0bb.
+On the reference video: Minimal 14 sounds (about 40 cents), Balanced 28 (about 50), Rich 37
+(about 75). Tiles on the Sound Tuning Room run `20261126-r20`; files and a picture of the
+choice in /mnt/project-files/round20/. Cost $1.36. NOT live: the web page and the GPU app
+(plan_sound takes the hint) both need deploying from this branch after he rates.
+
 ## Reference video changed (2026-11-26)
 
 Anthony uploaded an updated Mitey vacuum video: same edit, new graphics. From now on
