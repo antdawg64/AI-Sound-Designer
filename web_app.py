@@ -450,17 +450,22 @@ def web():
         if not job or job.get("state") != "done" or name not in DOWNLOADS:
             raise HTTPException(404, "Not ready.")
         path = JOBS / job_id / "out" / name
-        if not path.exists():
-            try:
-                jobs_volume.reload()
-            except Exception:
-                pass   # another download is open in this machine; the file may still appear
+        try:
+            jobs_volume.reload()       # also picks up a version just made in the editor
+        except Exception:
+            pass   # another download is open in this machine; the file may still appear
+        # Once someone has made their own version in the editor, that is "their video"
+        # everywhere: the front page and My videos hand out the edited files too.
+        edited = JOBS / job_id / "out" / "edited" / name
+        if edited.exists():
+            path = edited
         if not path.exists():
             raise HTTPException(404, "File not found. Please try again in a moment.")
         nice, kind = DOWNLOADS[name]
         filename = f"{job.get('name', 'video')}-{nice}"
         return FileResponse(path, media_type=kind, filename=filename if download else None,
-                            content_disposition_type="attachment" if download else "inline")
+                            content_disposition_type="attachment" if download else "inline",
+                            headers={"Cache-Control": "no-store"})
 
     # The editor (fine-tune the sound after it is made): pages and API in soundlib/editor_api.py
     from soundlib import editor_api
