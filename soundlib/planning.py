@@ -575,6 +575,12 @@ def _effort(effort: str | None) -> dict:
     return {"output_config": {"effort": effort}} if effort else {}
 
 
+def plan_hints() -> str:
+    """Everything extra Claude is told with the first plan: the standing taste, then the
+    sound detail level's own instruction."""
+    return " ".join(part for part in (C.PLAN_TASTE, C.PLAN_HINT) if part)
+
+
 def look_model() -> str:
     return C.LOOK_MODEL or C.PLAN_MODEL
 
@@ -594,7 +600,8 @@ def _image(jpeg: bytes) -> dict:
 
 
 def ask_missed(frames: list[dict], windows: list[dict], duration: float, plan: dict,
-               model: str | None = None, most: int | None = None, effort: str | None = None) -> dict:
+               model: str | None = None, most: int | None = None, effort: str | None = None,
+               hint: str | None = None) -> dict:
     """The second look. `frames` items: {time, jpeg}. Runs inside Modal, like ask_claude."""
     from concurrent.futures import ThreadPoolExecutor
 
@@ -611,7 +618,8 @@ def ask_missed(frames: list[dict], windows: list[dict], duration: float, plan: d
         content: list[dict] = [{"type": "text", "text": (
             f"The whole video is {duration:.2f} seconds long. This part runs from "
             f"{window['start']:.2f}s to {window['end']:.2f}s.\nSounds already planned here:\n"
-            + "\n".join(_planned_in(plan, window)))}]
+            + "\n".join(_planned_in(plan, window))
+            + (f"\nWhat to favour: {hint}" if hint else ""))}]
         for f in shown:
             content.append({"type": "text", "text": f"{f['time']:.2f}s:"})
             content.append(_image(f["jpeg"]))

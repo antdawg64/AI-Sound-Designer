@@ -1,0 +1,15 @@
+{
+  "_about": "Round 21 (2026-11-26): from Anthony's own editor edits he chose one change ('just #4'): more key moments for what the character does, fewer tiny mechanical clicks. Tested with the plan_taste setting against Current.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "character",
+      "label": "More of what the character does",
+      "setting": "plan_taste",
+      "value": "Key moments: favour what the character itself does with its body, hands or tools (grabbing, clawing, holding on, firing, pulling, landing, being lifted). Leave out tiny mechanical clicks unless that click is the point of the shot.",
+      "why": "Claude is told to give key moments to the character's own actions and to skip tiny mechanical clicks, which is what you added and deleted yourself in the editor."
+    }
+  ]
+}
