@@ -62,8 +62,7 @@ def _fetch(name: str, folder: str) -> None:
                     "-o", f"{folder}/{name}", f"{ZENODO}/{name}?download=1"], check=True)
 
 
-@app.function(image=image, volumes={LIB: library}, timeout=4 * 3600, cpu=8, memory=8192,
-              ephemeral_disk=120 * 1024)
+@app.function(image=image, volumes={LIB: library}, timeout=4 * 3600, cpu=8, memory=8192)
 def build_fsd50k(part: str = "eval", limit: int = 0) -> dict:
     """Download one part of FSD50K ("eval" or "dev") and store its usable CC0 recordings."""
     import csv

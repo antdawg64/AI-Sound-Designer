@@ -1,0 +1,24 @@
+{
+  "_about": "Round 16 (2026-11-26): real recordings for common sounds (Anthony: 'yes on 6 too'). Current is the round 14 winner (layered effects, pro mix), every sound generated. Earlier rounds are in variants_round*.json and variants_layers.json.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "library",
+      "label": "Real recordings where they fit",
+      "setting": "sfx_library",
+      "value": "on",
+      "why": "Key moments, their whoosh and detail layers and the room background are looked for in a library of public-domain real recordings first. Claude reads the closest recordings' labels and uses one only when it clearly fits; everything else is generated as before."
+    },
+    {
+      "id": "library_moments",
+      "label": "Real recordings for key moments only",
+      "settings": {
+        "sfx_library": "on",
+        "library_kinds": ["moment", "whoosh", "detail"]
+      },
+      "why": "The same, but the steady background of the room stays generated, in case a recorded room tone stands out."
+    }
+  ]
+}
