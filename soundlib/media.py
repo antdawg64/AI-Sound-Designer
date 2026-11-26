@@ -287,3 +287,46 @@ def action_instant(path: str | Path, near: float, reach: float) -> float | None:
     if values[best] < 2.0 * (np.median(values) + 0.3) or values[best] > 45.0:
         return None
     return round(changes[best][0], 3)
+
+
+def frames_at(path: str | Path, times: list[float], long_side: int) -> list[dict]:
+    """Small JPEGs of the frames nearest to the given times, for Claude's closer looks.
+    Returns {time, jpeg} with the time of the frame actually used; one pass over the video."""
+    import cv2
+
+    cap = cv2.VideoCapture(str(path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    wanted = sorted({max(0, int(round(t * fps))) for t in times})
+    frames, n = [], 0
+    if wanted:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, wanted[0])
+        n = wanted[0]
+    for index in wanted:
+        frame = None
+        while n <= index:           # read forward: seeking frame by frame is not exact
+            ok, got = cap.read()
+            n += 1
+            if not ok:
+                break
+            frame = got
+        if frame is None:
+            break
+        h, w = frame.shape[:2]
+        scale = long_side / max(h, w)
+        if scale < 1:
+            frame = cv2.resize(frame, (int(round(w * scale / 2) * 2), int(round(h * scale / 2) * 2)),
+                               interpolation=cv2.INTER_AREA)
+        ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 72])
+        if ok:
+            frames.append({"time": round(index / fps, 3), "jpeg": jpeg.tobytes()})
+    cap.release()
+    return frames
+
+
+def frame_rate(path: str | Path) -> float:
+    import cv2
+
+    cap = cv2.VideoCapture(str(path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    cap.release()
+    return float(fps)

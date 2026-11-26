@@ -112,6 +112,21 @@ class Cloud:
         self.claude = result["usage"]
         return result["plan"]
 
+    def _add_cost(self, usage: dict) -> None:
+        self.claude = {**usage, "dollars": round(usage["dollars"] + self.claude.get("dollars", 0.0), 4)}
+
+    def missed(self, frames: list[dict], windows: list[dict], duration: float, plan: dict) -> list[dict]:
+        fn = self.modal.Function.from_name(APP_NAME, "plan_missed")
+        result = fn.remote(frames, windows, duration, plan)
+        self._add_cost(result["usage"])
+        return result["actions"]
+
+    def pins(self, bursts: list[dict]) -> dict:
+        fn = self.modal.Function.from_name(APP_NAME, "plan_pins")
+        result = fn.remote(bursts)
+        self._add_cost(result["usage"])
+        return result["pins"]
+
     def compose_scored(self, caption: str, bpm: int, seconds: float, keyscale: str,
                        sections: list[dict]) -> tuple[np.ndarray, int]:
         return self._collect(
@@ -228,6 +243,14 @@ class TestTones:
                       "instruments": ["sine wave"], "cut_times": []},
         }
 
+    def missed(self, frames, windows, duration, plan) -> list[dict]:
+        return [{"time": round(duration * f, 2), "description": f"test missed action {n}",
+                 "loudness": "quiet", "position": "left"} for n, f in enumerate((0.21, 0.35, 0.65), start=1)]
+
+    def pins(self, bursts) -> dict:
+        return {b["index"]: {"visible": True, "time": b["frames"][len(b["frames"]) // 2 + 2]["time"],
+                             "what_changes": "test"} for b in bursts if len(b["frames"]) > 4}
+
     def effects(self, clip: Path, prompt: str, seg: dict) -> tuple[np.ndarray, int]:
         sr = C.SAMPLE_RATE
         n = int((seg["clip_end"] - seg["clip_start"]) * sr)
@@ -329,6 +352,29 @@ class Cached:
         path.write_text(json.dumps(plan, indent=2))
         return plan
 
+    def _json(self, key: str, kind: str, make):
+        path = self.folder / f"{key}.{kind}.json"
+        if path.exists():
+            self.hits += 1
+            return json.loads(path.read_text())
+        self._connect()
+        made = make()
+        path.write_text(json.dumps(made, indent=2))
+        return made
+
+    def missed(self, frames, windows, duration, plan) -> list[dict]:
+        jpegs = hashlib.sha256(b"".join(f["jpeg"] for f in frames)).hexdigest()
+        key = self._key("missed", jpegs, windows, plan["shots"], plan["moments"], C.PLAN_MODEL,
+                        C.SECOND_LOOK_MAX_EXTRA, hashlib.sha256(planning.LOOK_SYSTEM.encode()).hexdigest())
+        return self._json(key, "missed", lambda: self.backend.missed(frames, windows, duration, plan))
+
+    def pins(self, bursts) -> dict:
+        jpegs = hashlib.sha256(b"".join(f["jpeg"] for b in bursts for f in b["frames"])).hexdigest()
+        key = self._key("pins", jpegs, [(b["index"], b["description"], b["planned"]) for b in bursts],
+                        C.PLAN_MODEL, hashlib.sha256(planning.PIN_SYSTEM.encode()).hexdigest())
+        pins = self._json(key, "pins", lambda: self.backend.pins(bursts))
+        return {int(k): v for k, v in pins.items()}
+
     def effects(self, clip: Path, prompt: str, seg: dict) -> tuple[np.ndarray, int]:
         key = self._key("fx", hashlib.sha256(clip.read_bytes()).hexdigest(), prompt,
                         C.SEED + seg["index"], C.FOLEY_STEPS, C.FOLEY_GUIDANCE,
@@ -384,12 +430,13 @@ class Cached:
 PARTS = ("both", "effects", "music")
 
 
-def _snap(video: Path, spot: dict, duration: float) -> None:
+def _snap(video: Path, spot: dict, duration: float, pinned: bool = False) -> None:
     """Slide a key moment's sound so the instant it really starts lands on the instant
     of the action (MOMENT_SNAP). The action is looked for in the picture near the
     planned time; the sound's start is found by listening to it."""
-    sr, reach = C.SAMPLE_RATE, float(C.MOMENT_SNAP_MAX_SECONDS)
-    seen = media.action_instant(video, spot["time"], reach)
+    sr, reach = C.SAMPLE_RATE, float(C.MOMENT_PIN_REACH if pinned else C.MOMENT_SNAP_MAX_SECONDS)
+    # A moment Claude pinned to its frame is already exact; otherwise look for movement.
+    seen = None if pinned else media.action_instant(video, spot["time"], reach)
     target = seen if seen is not None else spot["time"]
     starts = spot["clip_start"] + (mixing.onset_sample(spot["audio"], 12.0) + int(0.015 * sr)) / sr
     shift = target - starts
@@ -552,6 +599,28 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         frames = media.extract_keyframes(video, shots, work / "frames")
         plan = planning.clean_plan(backend.plan(frames, shots, duration, speech, vibe), shots, duration)
         say(f"    {plan['summary']}")
+        closer = {}
+        if C.PLAN_SECOND_LOOK and C.PLAN_DETAIL == "close" and parts != "music":
+            say("    Looking again, closely, for actions with no sound yet")
+            step = 1.0 / float(C.SECOND_LOOK_FPS)
+            dense = media.frames_at(video, list(np.arange(step / 2, duration, step)), int(C.SECOND_LOOK_LONG_SIDE))
+            found = planning.add_missed(plan, backend.missed(
+                dense, planning.look_windows(shots, duration), duration, plan), duration)
+            for m in found:
+                say(f"      found at {m['time']:.2f}s: {m['description']}")
+            closer["second_look"] = {"frames": len(dense), "found": found}
+        if C.MOMENT_TIMING == "frame" and C.PLAN_DETAIL == "close" and parts != "music" and plan["moments"]:
+            say("    Finding the exact frame of each key moment")
+            fps, around = media.frame_rate(video), float(C.MOMENT_PIN_WINDOW)
+            bursts = []
+            for i, m in enumerate(plan["moments"]):
+                times = list(np.arange(max(0.0, m["time"] - around), min(duration, m["time"] + around), 1.0 / fps))
+                bursts.append({"index": i, "description": m["description"], "planned": m["time"],
+                               "frames": media.frames_at(video, times, int(C.MOMENT_PIN_LONG_SIDE))})
+            moved = planning.apply_pins(plan, backend.pins(bursts), bursts)
+            for m in moved:
+                say(f"      {m['planned']:.2f}s -> {m['frame']:.3f}s: {m['description']} ({m['what_changes']})")
+            closer["frame_timing"] = {"moments": len(bursts), "pinned": moved}
 
         say("3/6 Generating sound effects" if parts != "music" else "3/6 Skipping sound effects (music only)")
         from_text = C.SFX_ENGINE == "stable_audio" and parts != "music"
@@ -593,8 +662,8 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                 finally:
                     C.override({"foley_candidates": usual})
                 spot["audio"] = media.to_stereo_48k(audio, sr)
-                if C.MOMENT_SNAP:
-                    _snap(video, spot, duration)
+                if m.get("pinned") or C.MOMENT_SNAP:
+                    _snap(video, spot, duration, pinned=bool(m.get("pinned")))
                 spots.append(spot)
                 # Film-style layering: the supporting sounds of this moment, each made
                 # on its own so it is its own clip (a whoosh leading in, a detail after).
@@ -725,7 +794,7 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             "moments": [{k: v for k, v in s.items() if k != "audio"} for s in spots],
             "ambience": {k: v for k, v in ambience.items() if k != "audio"} if ambience else None,
             "mix": {k: v for k, v in mixed.items() if k in ("style", "gain_db", "dialogue", "lufs", "true_peak_db")},
-            "room": plan["room"],
+            "room": plan["room"], "closer_look": closer,
             "cues": cues,
             "music": {"provider": C.MUSIC_PROVIDER if parts != "effects" else None,
                       "caption": caption, "bpm": bpm, "claude_bpm": music_plan["tempo_bpm"],

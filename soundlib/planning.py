@@ -497,3 +497,212 @@ def source_spans(plan: dict, duration: float) -> list[dict]:
     for i, piece in enumerate(pieces):
         piece["index"] = 500 + i        # its own run of numbers, so its own random seeds
     return pieces
+
+
+# --- Second, closer look: actions the first plan gave no sound ------------------
+
+class MissedAction(BaseModel):
+    time: float
+    description: str
+    loudness: Literal["quiet", "medium", "loud"]
+    position: Position = "center"
+
+
+class MissedActions(BaseModel):
+    actions: list[MissedAction] = []
+
+
+LOOK_SYSTEM = """You are a film sound editor doing a spotting pass on part of a short \
+video. You are shown its frames in order, several per second, each with its timestamp, \
+and the list of sounds that are ALREADY planned for this part.
+
+Find every action you can see in these frames that a viewer would expect to hear and \
+that has no sound of its own yet: something touching, landing, hitting, grabbing, \
+snapping, dropping, bumping, sliding to a stop, opening, closing, switching, a single \
+clear step or jump, a sudden start or stop of movement. Small sounds count: they are \
+what make a soundtrack feel finished.
+
+For each one give:
+- time: the timestamp of the first frame where it happens (the frame of contact or of \
+the sudden change), in seconds from the start of the whole video.
+- description: one plain audio caption of just that one short sound, the way a sound \
+library labels a recording: the source, the material, the action ("small rubber wheel \
+bumping a wooden table leg"). Describe the sound, never the picture. No music, no \
+speech, no brand names.
+- loudness: quiet, medium or loud. Most of these are quiet or medium.
+- position: left, center or right, where it is on screen.
+
+Rules:
+- Only list what you can actually see happen in the frames. Never guess or invent.
+- Do not list anything already covered: a planned key moment within about half a \
+second of the same action, or a continuous planned effect that is exactly this sound \
+(planned footsteps already cover each step; a planned motor already covers the motor).
+- Do not list continuous sounds, camera moves, cuts, text on screen or lighting changes.
+- At most {limit} for this part, the clearest ones first. An empty list is right when \
+nothing is missing."""
+
+
+def look_windows(shots: list[dict], duration: float, longest: float = 9.0) -> list[dict]:
+    """The video in stretches short enough to show Claude every sampled frame at once,
+    cut on shot boundaries where possible."""
+    windows, start = [], 0.0
+    bounds = [s["end"] for s in shots]
+    while start < duration - 0.05:
+        inside = [b for b in bounds if start + 2.0 <= b <= start + longest]
+        end = inside[-1] if inside else min(duration, start + longest)
+        if duration - end < 2.0:
+            end = duration if duration - start <= longest * 1.3 else end
+        windows.append({"start": round(start, 3), "end": round(min(end, duration), 3)})
+        start = end
+    return windows
+
+
+def _planned_in(plan: dict, window: dict) -> list[str]:
+    lines = []
+    for shot in plan["shots"]:
+        for fx in shot["effects"]:
+            if fx["end"] > window["start"] and fx["start"] < window["end"]:
+                lines.append(f"- {fx['start']:.2f}s to {fx['end']:.2f}s (continuous): {fx['description']}")
+    for m in plan.get("moments", []):
+        if window["start"] - 0.5 <= m["time"] <= window["end"] + 0.5:
+            lines.append(f"- {m['time']:.2f}s (key moment): {m['description']}")
+    return lines or ["- nothing yet"]
+
+
+def _usage(responses: list) -> dict:
+    tokens_in = sum(r.usage.input_tokens for r in responses)
+    tokens_out = sum(r.usage.output_tokens for r in responses)
+    cost = (tokens_in * C.CLAUDE_DOLLARS_PER_MTOK["input"] + tokens_out * C.CLAUDE_DOLLARS_PER_MTOK["output"]) / 1e6
+    return {"input_tokens": tokens_in, "output_tokens": tokens_out, "dollars": round(cost, 4),
+            "model": responses[0].model if responses else C.PLAN_MODEL, "requests": len(responses)}
+
+
+def _image(jpeg: bytes) -> dict:
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                        "data": base64.standard_b64encode(jpeg).decode("ascii")}}
+
+
+def ask_missed(frames: list[dict], windows: list[dict], duration: float, plan: dict) -> dict:
+    """The second look. `frames` items: {time, jpeg}. Runs inside Modal, like ask_claude."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    import anthropic
+
+    client = anthropic.Anthropic()
+    limit = max(2, int(np.ceil(1.5 * int(C.SECOND_LOOK_MAX_EXTRA) / max(1, len(windows)))))
+
+    def one(window: dict):
+        shown = [f for f in frames if window["start"] - 1e-3 <= f["time"] < window["end"]][:90]
+        if len(shown) < 2:
+            return None
+        content: list[dict] = [{"type": "text", "text": (
+            f"The whole video is {duration:.2f} seconds long. This part runs from "
+            f"{window['start']:.2f}s to {window['end']:.2f}s.\nSounds already planned here:\n"
+            + "\n".join(_planned_in(plan, window)))}]
+        for f in shown:
+            content.append({"type": "text", "text": f"{f['time']:.2f}s:"})
+            content.append(_image(f["jpeg"]))
+        content.append({"type": "text", "text": "List the actions here that still need a sound."})
+        return client.messages.parse(model=C.PLAN_MODEL, max_tokens=4000,
+                                     system=LOOK_SYSTEM.format(limit=limit),
+                                     messages=[{"role": "user", "content": content}],
+                                     output_format=MissedActions)
+
+    with ThreadPoolExecutor(4) as pool:
+        responses = [r for r in pool.map(one, windows) if r is not None]
+    actions = []
+    for window, response in zip(windows, responses):
+        if response.parsed_output is not None:
+            actions += [a.model_dump() for a in response.parsed_output.actions]
+    return {"actions": actions, "usage": _usage(responses)}
+
+
+def add_missed(plan: dict, actions: list[dict], duration: float) -> list[dict]:
+    """Put the second look's finds into the plan as extra key moments (after the planned
+    ones, so those keep their place and their sound). Returns what was added."""
+    gap, taken = float(C.SECOND_LOOK_MIN_GAP), [m["time"] for m in plan["moments"]]
+    added = []
+    for a in sorted(actions, key=lambda a: a["time"]):
+        text = " ".join(str(a.get("description", "")).split()).rstrip(".")
+        time = round(float(a.get("time", -1.0)), 2)
+        if not text or not 0.0 <= time < duration - 0.1 or any(abs(time - t) < gap for t in taken):
+            continue
+        if len(added) >= int(C.SECOND_LOOK_MAX_EXTRA):
+            break
+        taken.append(time)
+        added.append({"time": time, "description": text, "loudness": a.get("loudness", "medium"),
+                      "layers": [], "position": a.get("position") or "center", "found": "second look"})
+    plan["moments"] = plan["moments"] + added
+    return added
+
+
+# --- Frame-exact timing of key moments --------------------------------------------
+
+class PinnedFrame(BaseModel):
+    visible: bool
+    time: float
+    what_changes: str
+
+
+PIN_SYSTEM = """You are a film sound editor syncing one sound effect to picture, frame \
+by frame. You are shown every consecutive frame of a short stretch of video, each with \
+its timestamp, and told which sound is to be placed there.
+
+Find the single frame where that sound should START: the first frame in which the \
+action that makes the sound has happened (first contact of an impact, the first frame \
+a thing is broken, released, switched or landed, the first frame of a sudden movement). \
+Compare neighbouring frames carefully; the answer is where the picture changes for \
+that action, not simply the middle of the stretch.
+
+Answer with visible (true if you can see that action in these frames; false if it is \
+not there or you cannot tell), time (the timestamp of that frame, copied exactly from \
+the labels), and what_changes (a few words on what is different in that frame)."""
+
+
+def ask_pins(bursts: list[dict]) -> dict:
+    """Frame-exact times. bursts: {index, description, planned, frames: [{time, jpeg}]}.
+    Returns {"pins": {index: {time, visible, what_changes}}, "usage"}. Runs inside Modal."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    import anthropic
+
+    client = anthropic.Anthropic()
+
+    def one(burst: dict):
+        content: list[dict] = [{"type": "text", "text": (
+            f"Sound to place: {burst['description']}. It was roughly estimated at "
+            f"{burst['planned']:.2f}s from stills; that estimate can be off by several frames "
+            "either way.")}]
+        for f in burst["frames"][:90]:
+            content.append({"type": "text", "text": f"{f['time']:.3f}s:"})
+            content.append(_image(f["jpeg"]))
+        content.append({"type": "text", "text": "Which frame does this sound start on?"})
+        return client.messages.parse(model=C.PLAN_MODEL, max_tokens=2000, system=PIN_SYSTEM,
+                                     messages=[{"role": "user", "content": content}],
+                                     output_format=PinnedFrame)
+
+    with ThreadPoolExecutor(4) as pool:
+        responses = list(pool.map(one, bursts))
+    pins = {}
+    for burst, response in zip(bursts, responses):
+        if response.parsed_output is not None:
+            pins[burst["index"]] = response.parsed_output.model_dump()
+    return {"pins": pins, "usage": _usage(responses)}
+
+
+def apply_pins(plan: dict, pins: dict, bursts: list[dict]) -> list[dict]:
+    """Move each key moment onto the frame Claude picked. Returns what moved, for the report."""
+    moved = []
+    for burst in bursts:
+        pin = pins.get(burst["index"]) or pins.get(str(burst["index"]))
+        times = [f["time"] for f in burst["frames"]]
+        if not pin or not pin.get("visible") or not times:
+            continue
+        exact = min(times, key=lambda t: abs(t - float(pin["time"])))   # always a real frame
+        if abs(exact - float(pin["time"])) > 0.06:
+            continue
+        moment = plan["moments"][burst["index"]]
+        moved.append({"description": moment["description"], "planned": moment["time"], "frame": exact,
+                      "moved_seconds": round(exact - moment["time"], 3), "what_changes": pin.get("what_changes", "")})
+        moment["planned_time"], moment["time"], moment["pinned"] = moment["time"], round(exact, 3), True
+    return moved
