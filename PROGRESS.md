@@ -2,11 +2,11 @@
 
 _Last updated: 2026-11-25_
 
-## Round 18 (2026-11-26): missing sounds and exact timing (waiting for Anthony's ratings)
+## Round 18 (2026-11-26): missing sounds and exact timing (rated, applied on the branch, not live)
 
 Anthony: "i feel like we're missing sound fx" and "timing isn't perfect"; yes to a second close
 look plus frame-exact timing. First round on the new reference video
-(`mitey_vacuum_short_polish_full_silent.mp4`). Both new settings are off by default:
+(`mitey_vacuum_short_polish_full_silent.mp4`). Rated 2026-11-26 06:08 UTC (ratings_round18.csv): current 2, second look 3, frame timing 3, both 4 (winner). Both are now the defaults in settings.json on this branch; NOT live until Anthony says so. The two settings:
 - `plan_second_look`: Claude goes through the whole video again at 8 pictures a second and
   lists actions with no sound yet; each becomes an extra key moment (found 7 here).
 - `moment_timing: frame`: Claude sees every frame around each key moment and picks the exact
