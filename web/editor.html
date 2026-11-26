@@ -923,33 +923,28 @@ async function moreIdeas(p, tweak) {
     drawPending(); drawPanel();
   }
 }
-// Where an option would sit: its own start, moved by as much as the one in use was moved.
-function optionPiece(clip, g) {
-  const first = copyOf(FIRST.find(q => q.src === clip.id) || { id: clip.id, src: clip.id, start: clip.start, in: 0, out: clip.duration, gain_db: 0, muted: false, label: clip.label });
-  const now = inUse(g)[0];
-  if (now) { first.start = +(first.start + (now.start - homeOf(now))).toFixed(4); first.gain_db = now.gain_db; first.muted = now.muted; }
-  return first;
+// Where an option would sit in place of the sound p: its own start, moved by as much as p was moved.
+function optionPiece(clip, p) {
+  const first = FIRST.find(q => q.src === clip.id) || { start: clip.start };
+  return { src: clip.id, in: 0, out: clip.duration, start: +(first.start + (p.start - homeOf(p))).toFixed(4), label: clip.label };
 }
-async function listenOption(clip, g) {
+async function listenOption(clip, p) {
   if (ctx.state !== "running") await ctx.resume();
   stopAll();
-  const q = optionPiece(clip, g), src = ctx.createBufferSource(), gain = ctx.createGain();
+  const q = optionPiece(clip, p), src = ctx.createBufferSource(), gain = ctx.createGain();
   src.buffer = buffers[clip.id];
-  gain.gain.value = gainOf(q.gain_db + S.effects_db);
+  gain.gain.value = gainOf(p.gain_db + S.effects_db);
   src.connect(gain); gain.connect(master); src.start(0);
   sources["listen"] = [src, gain];
   seek(Math.max(0, q.start));
   log("listen_option", { clip: clip.id });
 }
-function useOption(clip, g) {
-  const fresh = optionPiece(clip, g);
-  fresh.deleted = false;
-  for (const q of S.pieces) if (groupOf(q.src) === g && !q.deleted) { q.deleted = true; stopSource(q.id); }
-  const mine = S.pieces.find(q => q.id === fresh.id);
-  if (mine) Object.assign(mine, fresh); else S.pieces.push(fresh);
-  selected = fresh.id; multi = new Set();
-  if (playing) schedulePiece(piece(fresh.id));
-  commit("use_option", { clip: clip.id, of: g, real: !!clip.recording });
+// Only the selected sound changes to the other option; copies of it stay as they are.
+function useOption(clip, p) {
+  stopSource(p.id);
+  Object.assign(p, optionPiece(clip, p));
+  if (playing) schedulePiece(p);
+  commit("use_option", { clip: clip.id, piece: p.id, of: groupOf(clip.id), real: !!clip.recording });
 }
 function drawOptions(panel, p) {
   const g = groupOf(p.src), list = optionsOf(g);
@@ -965,10 +960,10 @@ function drawOptions(panel, p) {
       what.title = c.made_as || c.label;
       row.appendChild(what);
       const hear = el("button", null, "▶"); hear.title = "Listen to this option"; hear.setAttribute("aria-label", "Listen to " + (c.idea || c.label));
-      hear.addEventListener("click", () => using ? listen(p.id) : listenOption(c, g));
+      hear.addEventListener("click", () => using ? listen(p.id) : listenOption(c, p));
       row.appendChild(hear);
       const use = el("button", using ? "on" : "", using ? "In use" : "Use this"); use.disabled = using;
-      use.addEventListener("click", () => useOption(c, g));
+      use.addEventListener("click", () => useOption(c, p));
       row.appendChild(use);
       box.appendChild(row);
     }
@@ -1138,14 +1133,9 @@ function drawPanel() {
 }
 function drawRemoved() {
   const box = $("removed"); box.textContent = "";
-  const shown = new Set();
-  const gone = S.pieces.filter(p => {
-    if (!p.deleted) return false;
-    const g = groupOf(p.src);
-    if (optionsOf(g).length < 2) return true;
-    if (inUse(g).length || shown.has(g)) return false;       // one of its options is in use, or it is listed already
-    shown.add(g); return true;
-  });
+  // The other options of a sound wait in its panel, not here.
+  const waiting = new Set(FIRST.filter(q => q.deleted).map(q => q.id));
+  const gone = S.pieces.filter(p => p.deleted && !waiting.has(p.id));
   if (gone.length) {
     box.appendChild(el("span", "muted", "Removed:"));
     for (const p of gone) {
