@@ -859,3 +859,22 @@ New defaults written to `settings.json`:
 - `sfx_library`: `off` to `on`
 - `library_judge`: `claude` to `claude_sounds_alike`
 - `library_min_score`: `0.25` to `0.2`
+
+## Tuning round, 2026-11-26
+
+From Anthony's ratings in `ratings_round17_library.csv` (current settings scored 2.0 out of 5):
+
+- `library_first`: 2.0 (same)
+- `library_fx_plus4`: 3.0 (better)
+- `library_fx_plus8`: 3.0 (better)
+- `library_quiet_up`: 4.0 (better (all its settings applied))
+
+New defaults written to `settings.json`:
+
+- `sfx_library`: `on` to `on`
+- `library_judge`: `claude_sounds_alike` to `claude_library_first`
+- `library_min_score`: `0.2` to `0.15`
+- `library_candidates`: `6` to `8`
+- `sfx_sources`: `mixed` to `separate`
+- `sfx_lufs_no_voice`: `-34` to `-30`
+- `shot_level_db`: `{"quiet": -10.0, "medium": -5.0, "loud": 0.0}` to `{"quiet": -4.0, "medium": -2.0, "loud": 0.0}`

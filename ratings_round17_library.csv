@@ -1,0 +1,6 @@
+video,variant,setting,value,rating,note,rated_at
+mitey-vacuum-short-polish-full-silent,current,,,2,,2026-11-26T06:22:45.106Z
+mitey-vacuum-short-polish-full-silent,library_first,(several),"{""sfx_library"":""on"",""library_judge"":""claude_library_first"",""library_min_score"":0.15,""library_candidates"":8,""sfx_sources"":""separate""}",2,,2026-11-26T06:22:41.284Z
+mitey-vacuum-short-polish-full-silent,library_fx_plus4,(several),"{""sfx_library"":""on"",""library_judge"":""claude_library_first"",""library_min_score"":0.15,""library_candidates"":8,""sfx_sources"":""separate"",""sfx_lufs_no_voice"":-30}",3,,2026-11-26T06:22:38.244Z
+mitey-vacuum-short-polish-full-silent,library_fx_plus8,(several),"{""sfx_library"":""on"",""library_judge"":""claude_library_first"",""library_min_score"":0.15,""library_candidates"":8,""sfx_sources"":""separate"",""sfx_lufs_no_voice"":-26}",3,,2026-11-26T06:22:37.430Z
+mitey-vacuum-short-polish-full-silent,library_quiet_up,(several),"{""sfx_library"":""on"",""library_judge"":""claude_library_first"",""library_min_score"":0.15,""library_candidates"":8,""sfx_sources"":""separate"",""sfx_lufs_no_voice"":-30,""shot_level_db"":{""quiet"":-4.0,""medium"":-2.0,""loud"":0.0}}",4,,2026-11-26T06:22:36.175Z
