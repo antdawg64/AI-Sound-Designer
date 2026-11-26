@@ -2,6 +2,26 @@
 
 _Last updated: 2026-11-26_
 
+## Editor: three Foley ideas per added sound, vertical video on the right (LIVE 2026-11-26 about 19:35 UTC)
+
+Anthony: the "make it again" preset buttons made sounds worse; try real recordings first and let the
+AI propose three options the way Foley works (a pop can play "carpet ripping up"). Also: a vertical
+video should play large on the right, a 16:9 one stays where it was.
+
+- `planning.ask_added` now returns three ideas (name + description): the literal sound and stand-ins.
+  `make_sound.add_sound` makes all three side by side, each through the usual effects path (real
+  recording from the CC0 library when one fits, otherwise generated); two ideas never share one
+  recording. Clips are saved as `<add id>o0..o2` with `idea`, `option_of`, `first_option`.
+- Editor: the clip panel lists "Options for this sound" (Real recording / Generated, listen, Use this).
+  Only one option is on the timeline; the others are pieces flagged deleted and hidden from "Removed".
+  "3 more ideas" (optional words) adds options to the same group, also for the AI's own key moments.
+  The preset remake buttons are gone.
+- Measured on the reference video ("carpet ripping up" at 20.6 s): 68 s cold, 6 cents, two of three
+  from real recordings; three more ideas: 21 s, 5 cents. `editor_add_max` is now 120 clips (40 asks).
+- Tall videos: `body.tall` grid in `web/editor.html` (video right, panel in the middle from 1280 px
+  wide, panel above the timeline below that). Phones unchanged.
+- Not tested signed in on the live site or on a real iPhone (the cloud session cannot sign in).
+
 ## Effects volume bug found and fixed (2026-11-26, LIVE with the Sound detail choice)
 
 Round 20 scores: Minimal 3, Balanced 2, Rich 4; Anthony: "minimal actually sounded more full
