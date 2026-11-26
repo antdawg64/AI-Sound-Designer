@@ -499,7 +499,7 @@ function stopAll() {
 // While paused the red line always sits on a whole frame and the picture shows that frame.
 // A phone can't jump as fast as a finger moves, so only the newest wish is kept: when one
 // jump is done the picture goes straight to wherever the line is by then.
-let wantPicture = null, lastJump = 0;
+let wantPicture = null, lastJump = 0, seekingSince = 0, lastOffNote = 0;
 function showPicture(t) {
   const v = $("video");
   const at = Math.min(frameTime(frameOf(t)) + 0.5 / FPS, Math.max(0, (v.duration || M.duration) - 0.001));
@@ -538,11 +538,20 @@ function frame() {
       // The sound keeps the time and the picture follows it. A small gap is closed by
       // running the picture a touch faster or slower, which the eye doesn't notice; only
       // a big gap is jumped, and not again straight away (jumping is what stutters on phones).
-      const v = $("video"), want = t - (ctx.outputLatency || 0), off = v.currentTime - want;
-      if (!v.seeking && t < M.duration) {
-        if (v.paused) v.play().catch(() => {});
-        if (Math.abs(off) > 0.5 && performance.now() - lastJump > 1500) {
-          lastJump = performance.now(); v.playbackRate = 1; v.currentTime = Math.max(0, want + 0.06);
+      const v = $("video"), want = t - (ctx.outputLatency || 0), off = v.currentTime - want, clockNow = performance.now();
+      // An iPhone can leave a jump hanging ("seeking" for good) or drop one that came
+      // while another was under way. Then the picture is asked again instead of waiting.
+      if (!v.seeking) seekingSince = 0; else if (!seekingSince) seekingSince = clockNow;
+      const stuck = v.seeking && clockNow - seekingSince > 900;
+      if (Math.abs(off) > 0.7 && clockNow - lastOffNote > 2500 && t < M.duration - 0.3) {      // kept, to find out why on real phones
+        lastOffNote = clockNow;
+        log("picture_off", { off: +off.toFixed(2), seeking: v.seeking, paused: v.paused, ready: v.readyState, stuck, rate: v.playbackRate });
+        if (!dirty) queueSave();
+      }
+      if ((!v.seeking || stuck) && t < M.duration) {
+        if (v.paused) v.play().catch(err => { if (clockNow - lastOffNote > 2500) { lastOffNote = clockNow; log("picture_play_refused", { why: String(err && err.name) }); } });
+        if (Math.abs(off) > 0.5 && clockNow - lastJump > (stuck ? 900 : 700)) {
+          lastJump = clockNow; seekingSince = 0; v.playbackRate = 1; v.currentTime = Math.max(0, want + 0.06);
         } else {
           const rate = Math.abs(off) < 0.035 ? 1 : clamp(1 - off * 0.9, 0.8, 1.25);
           if (Math.abs(v.playbackRate - rate) > 0.015) v.playbackRate = rate;
@@ -551,6 +560,15 @@ function frame() {
       if (t >= M.duration) { stopAll(); position = frameTime(lastFrame()); }
       const sc = $("scroll"), x = t * pps;
       if (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - 30) sc.scrollLeft = Math.max(0, x - 60);
+    }
+    else if (wantPicture != null) {      // paused, and a jump has been hanging: ask for the newest frame anyway
+      const v = $("video"), clockNow = performance.now();
+      if (!v.seeking) { const at = wantPicture; wantPicture = null; seekingSince = 0; v.currentTime = at; }
+      else if (!seekingSince) seekingSince = clockNow;
+      else if (clockNow - seekingSince > 700) {
+        const at = wantPicture; wantPicture = null; seekingSince = 0; v.currentTime = at;
+        if (clockNow - lastOffNote > 2500) { lastOffNote = clockNow; log("picture_hung", { ready: v.readyState }); }
+      }
     }
     drawPlayhead();
   }
@@ -1636,7 +1654,7 @@ async function start() {
   buildTimeline(); drawHeads(); drawPanel(); drawRemoved(); applyGains();
   $("reset").disabled = !isChanged();
   $("save-status").textContent = isChanged() ? "Your earlier changes are loaded" : "";
-  log("open", { clips: S.pieces.length, changed: isChanged() });
+  log("open", { clips: S.pieces.length, changed: isChanged(), build: "1126j", phone: PHONE.matches, wide: window.innerWidth, touch: navigator.maxTouchPoints || 0 });
   showCost(false);
   $("cover").classList.add("hidden");
   requestAnimationFrame(frame);
