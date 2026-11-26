@@ -71,6 +71,21 @@ live apps cannot reach the library and simply generate every sound as before.
 | 2026-11-25/26 | Library build (download, sort, index) | 2125 GPU + CPU | about $1.50 |
 | 2026-11-26 | Round 16: baseline and library versions of the vacuum video | 226 | $0.51 |
 
+## Round 15 (2026-11-25): better effects around the same model (rated)
+
+Anthony said yes to: one sound at a time, several takes with a judge, snap to the action,
+per-sound cleanup and placing, and descriptions in the model's own style. All new settings
+default to off: `sfx_sources` (mixed/separate), `take_judge` (match/strict) with
+`foley_candidates`/`spot_candidates`, `moment_snap`, `sfx_cleanup`, `sfx_pan`. The planner
+now writes one plain sound per effect with a `source` and `position` (this part is always on).
+Adapted from the idea list: sources are separated by time window, not by cropping the picture;
+the judge is a text-to-sound match with penalties for voice, music and late starts (no true
+picture-sync scorer); noise reduction only on key moments.
+Run: `SOUND_APP=ai-sound-designer-dev python tune.py <video> --variants variants_round15.json`.
+Tiles are on the Sound Tuning Room (run `20261125-r15`), files in /mnt/project-files/round15/.
+Cost $0.65. Best of 3 takes roughly triples the effects cost per video (about $0.08 to $0.22 here).
+Rated 2026-11-25 (ratings_round15.csv): round 14 winner 2, new descriptions only 4 (winner; already the default since it is in the planner), one sound at a time 2, with best of 3 takes 2, snap + cleanup + place 3, everything 3. So the new options stay off. LIVE: Anthony chose 'Deploy to the live site' on 2026-11-25 23:52 UTC; deployed from 86b140f (layered effects, pro mix, new descriptions, /insights report page; also installed ai-sound-designer-stable). Checked: page loads, /insights redirects to sign-in, its downloads refuse strangers. No full video run on the live site yet.
+
 ## Layered effects, pro mix, Stable Audio, edit insights (2026-11-25, round 14 waiting for ratings)
 
 Branch `claude/project-thread-1d0ddk` (contains the editor branch up to 7eded98). All new

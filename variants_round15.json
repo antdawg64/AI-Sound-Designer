@@ -1,0 +1,33 @@
+{
+  "_about": "Round 15 (2026-11-25): keep the current effects model and improve around it, Anthony's 'yes' to items 1 to 5: one sound at a time, several takes with an automatic judge, snap to the action, per-sound cleanup and left-right placing, and sound descriptions written the way the model was trained. The run's 'current' tile already uses the new descriptions (item 5); the round 14 winner is added to the page beside it.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "sources",
+      "label": "One sound at a time",
+      "setting": "sfx_sources",
+      "value": "separate",
+      "why": "Each thing that makes a sound (the vacuum, the footsteps) is made on its own from the part of the video where it is heard, and is its own clip in the editor. A sound that runs over several shots is one continuous sound."
+    },
+    {
+      "id": "sources_takes",
+      "label": "One sound at a time, best of 3 takes",
+      "settings": {"sfx_sources": "separate", "foley_candidates": 3, "spot_candidates": 3, "take_judge": "strict"},
+      "why": "Three takes of every sound. An automatic judge keeps the one closest to its description and marks down takes with stray voices, music, or a key moment that starts at the wrong instant."
+    },
+    {
+      "id": "polish",
+      "label": "Snap, clean up and place",
+      "settings": {"moment_snap": true, "sfx_cleanup": true, "sfx_pan": 0.4},
+      "why": "Key moments slide onto the exact instant of the action, every sound is tidied (rumble out, hiss between hits down, sharper attack), and sounds sit a little left or right to match the picture. Best heard on headphones."
+    },
+    {
+      "id": "everything",
+      "label": "Everything together",
+      "settings": {"sfx_sources": "separate", "foley_candidates": 3, "spot_candidates": 3, "take_judge": "strict", "moment_snap": true, "sfx_cleanup": true, "sfx_pan": 0.4},
+      "why": "All of the above at once: what the new default would be."
+    }
+  ]
+}
