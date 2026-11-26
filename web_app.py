@@ -201,9 +201,9 @@ def add_sound(job_id: str, add_id: str, ask: dict) -> dict:
                                  describe=None if job.get("test_tones") else describe_sound.remote,
                                  refine=ask.get("refine"))
         jobs_volume.commit()
-        note(state="done", dollars=cost["dollars"], from_library=cost["from_library"])
         _update(job_id, added_sounds=int(job_status.get(job_id, {}).get("added_sounds", 0)) + 1,
                 added_cost=round(float(job_status.get(job_id, {}).get("added_cost", 0)) + cost["dollars"], 4))
+        note(state="done", dollars=cost["dollars"], from_library=cost["from_library"])
         return {"made": True, **cost}
     except Exception as exc:
         traceback.print_exc()

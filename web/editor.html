@@ -52,6 +52,11 @@
   .top .grow { flex: 1; min-width: 0; }
   .top .back { text-decoration: none; font-size: 14px; white-space: nowrap; }
   #save-status { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  /* What this video has cost so far: only the site's owner is sent the numbers, so only they see it. */
+  #cost { font: 12px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 99px;
+          padding: 4px 10px; white-space: nowrap; cursor: help; }
+  #cost b { color: var(--ink); font-weight: 600; }
+  #cost .up { color: var(--added); }
 
   /* Video and side panel */
   .stage { display: flex; gap: 14px; padding: 14px 16px 10px; flex: 1 1 0; min-height: 250px; }
@@ -264,6 +269,7 @@
   <h1>Fine-tune the sound</h1>
   <span class="name" id="name"></span>
   <span class="grow"></span>
+  <span id="cost" class="hidden"></span>
   <span id="save-status" aria-live="polite"></span>
   <button id="undo" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
   <button id="redo" title="Redo (Ctrl+Shift+Z)" disabled>↷ Redo</button>
@@ -902,6 +908,29 @@ function openAdd() {
   const text = $("add-text"); if (text && window.matchMedia("(min-width: 821px)").matches) text.focus();
 }
 const MAX_AT_ONCE = 5;
+// The owner's cost counter: the video's total so far, and what the last paid change added.
+// Moving, muting, splitting and "Make my video" cost nothing; sounds that are made do.
+let costSeen = null, costLast = null;
+async function showCost(again) {
+  try {
+    const r = await fetch("/api/job/" + JOB, { cache: "no-store" });
+    const cost = r.ok ? (await r.json()).cost : null;
+    if (!cost) return;
+    if (costSeen != null && cost.credits > costSeen + 0.04) costLast = cost.credits - costSeen;
+    costSeen = cost.credits;
+    const money = c => "$" + (c / 100).toFixed(2), box = $("cost");
+    box.textContent = "";
+    box.appendChild(el("b", null, money(cost.credits)));
+    box.appendChild(document.createTextNode(" so far"));
+    if (costLast != null) box.appendChild(el("span", "up", " · last change +" + money(costLast)));
+    box.title = "What this video has cost (only you see this).\nFirst render: " + money(cost.credits - (cost.added || 0)) +
+      " (planning " + money(cost.planning) + ", music " + money(cost.music) + ", effects " + money(cost.effects) + ")" +
+      "\nSounds made in the editor: " + money(cost.added || 0) + (cost.added_sounds ? " (" + cost.added_sounds + " asks)" : "") +
+      "\nMoving, muting, splitting and Make my video are free.";
+    box.classList.remove("hidden");
+  } catch (err) {}
+  if (again) setTimeout(() => showCost(false), 6000);       // the bill can land a moment after the sound
+}
 let remakeNote = null;
 // The options of one sound: three ideas are made for each sound asked for, and one is in
 // use at a time. A sound the AI placed becomes a group once more ideas are asked for it.
@@ -1043,6 +1072,7 @@ async function placeAdded(item, clips, firsts) {
     }));
   } catch (err) { return addFailed(item, "it was made but didn't load. Reload this page to see it."); }
   pendingAdds = pendingAdds.filter(x => x !== item);
+  setTimeout(() => showCost(true), 1500);
   const fresh = clips.filter(c => !byId[c.id]);
   if (!fresh.length) { drawPending(); return redrawKeepingTyping(); }      // already on the timeline
   const mine = fresh.map(c => firsts.find(q => q.src === c.id)).filter(Boolean);
@@ -1513,6 +1543,7 @@ async function start() {
   $("reset").disabled = !isChanged();
   $("save-status").textContent = isChanged() ? "Your earlier changes are loaded" : "";
   log("open", { clips: S.pieces.length, changed: isChanged() });
+  showCost(false);
   $("cover").classList.add("hidden");
   requestAnimationFrame(frame);
 }
