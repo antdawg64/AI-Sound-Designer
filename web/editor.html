@@ -74,6 +74,8 @@
   .panel .at button, .seg button { padding: 7px 10px; font-size: 13px; }
   .seg { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
   .panel .status { font-size: 13px; min-height: 18px; }
+  .making { border: 1px dashed var(--added); border-radius: 10px; padding: 10px 12px; margin: 4px 0 10px; font-size: 13px; }
+  .making .busy { margin: 8px 0 6px; }
   .panel .status.bad { color: var(--bad); }
   .busy { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 12px 0 8px; }
   .busy div { height: 100%; width: 35%; border-radius: 99px; background: var(--added); animation: busy 1.4s ease-in-out infinite alternate; }
@@ -120,7 +122,7 @@
            text-overflow: ellipsis; pointer-events: none; }
   .scene.now { background: var(--soft); color: var(--ink); border-color: var(--accent); }
   .pending { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--added); z-index: 5; pointer-events: none; }
-  .pending::after { content: "Making…"; position: absolute; top: 28px; left: 5px; font-size: 11px; font-weight: 600; color: var(--added);
+  .pending::after { content: "Making…"; position: absolute; top: 64px; left: 5px; font-size: 11px; font-weight: 600; color: var(--added);
                     background: var(--added-soft); border-radius: 5px; padding: 2px 6px; white-space: nowrap; }
   .scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; position: relative; }
   .lanes { position: relative; min-width: 100%; }
@@ -308,7 +310,7 @@ const WAVE = { moment: "--moment", background: "--bg-clip", ambience: "--ambienc
 let laneOf = {};         // row key | "music" | "voice" -> its element
 let FPS = 30;            // frames per second of the video
 let CAN_ADD = false, ADD_SECONDS = [1.5, 3, 6];
-let addOpen = false, addDraft = { text: "", seconds: 1.5 }, pendingAdd = null, addNote = null;
+let addOpen = false, addDraft = { text: "", seconds: 1.5 }, pendingAdds = [], addNote = null;   // pendingAdds: sounds being made now
 
 // ---------------------------------------------------------------- helpers
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -714,8 +716,9 @@ function layout() {
 }
 function drawPending() {
   $("lanes").querySelectorAll(".pending").forEach(n => n.remove());
-  if (!pendingAdd) return;
-  const m = el("div", "pending"); m.style.left = (pendingAdd.at * pps) + "px"; $("lanes").appendChild(m);
+  for (const item of pendingAdds) {
+    const m = el("div", "pending"); m.style.left = (item.at * pps) + "px"; m.title = item.prompt; $("lanes").appendChild(m);
+  }
 }
 function drawClips() {
   packRows();
@@ -805,12 +808,13 @@ function drawHeads() {
 // ---------------------------------------------------------------- add a sound by describing it
 function drawAddPanel(panel) {
   panel.appendChild(el("span", "tag added", "Add a sound"));
-  if (pendingAdd) {
-    panel.appendChild(el("h2", null, "Making your sound…"));
-    panel.appendChild(el("p", "muted", "“" + shortLabel(pendingAdd.prompt, 120) + "” at " + clock(pendingAdd.at, 2) + "."));
-    const bar = el("div", "busy"); bar.appendChild(el("div")); panel.appendChild(bar);
-    panel.appendChild(el("p", "muted", "This usually takes under a minute, sometimes two. You can keep editing; it appears on the timeline by itself."));
-    return;
+  if (pendingAdds.length) {       // what is being made now; more can be asked for meanwhile
+    const box = el("div", "making");
+    box.appendChild(el("b", null, pendingAdds.length === 1 ? "Making 1 sound…" : "Making " + pendingAdds.length + " sounds…"));
+    for (const item of pendingAdds) box.appendChild(el("div", "muted", clock(item.at, 2) + "  “" + shortLabel(item.prompt, 60) + "”"));
+    const bar = el("div", "busy"); bar.appendChild(el("div")); box.appendChild(bar);
+    box.appendChild(el("div", "muted", "Each appears on the timeline by itself, usually in under a minute. You can add more meanwhile."));
+    panel.appendChild(box);
   }
   const tip = el("p", "muted", "Put the red line on the exact frame where the sound should start, then describe it.");
   tip.style.fontSize = "13px"; panel.appendChild(tip);
@@ -848,55 +852,74 @@ function openAdd() {
   drawClips(); drawPanel();
   const text = $("add-text"); if (text && window.matchMedia("(min-width: 821px)").matches) text.focus();
 }
+const MAX_AT_ONCE = 5;
 async function askForSound() {
   const prompt = addDraft.text.trim().replace(/\s+/g, " ");
   if (prompt.length < 3) { addNote = { bad: true, text: "Please describe the sound in a few words." }; return drawPanel(); }
+  if (pendingAdds.length >= MAX_AT_ONCE) { addNote = { bad: true, text: MAX_AT_ONCE + " sounds are being made. Please wait for one to finish." }; return drawPanel(); }
   if (playing) stopAll();
-  const at = frameTime(frameOf(now()));
-  pendingAdd = { prompt, at, id: null }; addNote = null;
+  const item = { prompt, at: frameTime(frameOf(now())), seconds: addDraft.seconds, id: null };
+  pendingAdds.push(item);
+  addDraft.text = ""; addNote = { text: "On its way. Move the red line and describe another if you like." };
   drawPanel(); drawPending();
   try {
     const r = await fetch(API + "/add", { method: "POST", headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ prompt, time: at, seconds: addDraft.seconds }) });
+                                          body: JSON.stringify({ prompt, time: item.at, seconds: item.seconds }) });
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.detail || "We couldn't start making that sound. Please try again.");
-    pendingAdd.id = body.id;
-    log("add_ask", { at: +at.toFixed(3), seconds: addDraft.seconds, words: prompt });
-    setTimeout(checkAdded, 2500);
-  } catch (err) { addFailed(err.message); }
+    item.id = body.id;
+    log("add_ask", { at: +item.at.toFixed(3), seconds: item.seconds, words: prompt });
+    setTimeout(() => checkAdded(item), 2500);
+  } catch (err) { addFailed(item, err.message); }
 }
-function addFailed(text) {
-  pendingAdd = null; addOpen = true; selected = null;
-  addNote = { bad: true, text: text || "We couldn't make that sound. Please try again." };
-  drawPending(); drawClips(); drawPanel();
+// Redraw the side panel without losing what is being typed in the description box.
+function redrawKeepingTyping() {
+  const box = $("add-text"), typing = box && document.activeElement === box, a = box && box.selectionStart, b = box && box.selectionEnd;
+  drawPanel();
+  const again = $("add-text");
+  if (typing && again) { again.focus(); try { again.setSelectionRange(a, b); } catch (err) {} }
 }
-async function checkAdded() {
-  if (!pendingAdd || !pendingAdd.id) return;
+function addFailed(item, text) {
+  pendingAdds = pendingAdds.filter(x => x !== item);
+  if (!addDraft.text.trim()) addDraft.text = item.prompt;         // so it can be tried again
+  addNote = { bad: true, text: "“" + shortLabel(item.prompt, 50) + "”: " + (text || "we couldn't make that sound. Please try again.") };
+  if (!selected) addOpen = true;
+  drawPending(); redrawKeepingTyping();
+}
+async function checkAdded(item) {
+  if (!pendingAdds.includes(item)) return;
   try {
-    const r = await fetch(API + "/add/" + pendingAdd.id, { cache: "no-store" });
+    const r = await fetch(API + "/add/" + item.id, { cache: "no-store" });
     const body = await r.json().catch(() => ({}));
-    if (r.ok && body.state === "done") return await placeAdded(body.clip, body.piece);
-    if (!r.ok || body.state === "failed") return addFailed(body.error || body.detail);
+    if (r.ok && body.state === "done") return await placeAdded(item, body.clip, body.piece);
+    if (!r.ok || body.state === "failed") return addFailed(item, body.error || body.detail);
   } catch (err) {}                      // a dropped connection: just ask again
-  setTimeout(checkAdded, 2500);
+  setTimeout(() => checkAdded(item), 2500);
 }
-async function placeAdded(clip, first) {
+async function placeAdded(item, clip, first) {
   try {
     const r = await fetch(API + "/audio/" + clip.file);
     if (!r.ok) throw new Error(clip.file);
     buffers[clip.id] = await ctx.decodeAudioData(await r.arrayBuffer());
     peaks[clip.id] = computePeaks(buffers[clip.id]);
-  } catch (err) { return addFailed("The sound was made but didn't load. Reload this page to see it."); }
+  } catch (err) { return addFailed(item, "it was made but didn't load. Reload this page to see it."); }
+  pendingAdds = pendingAdds.filter(x => x !== item);
   M.clips.push(clip); byId[clip.id] = clip; FIRST.push(first);
   S.pieces.push(copyOf(first));
   // It is part of the video from now on, so every earlier step of Undo gets it too.
   history = history.map(h => { const s = JSON.parse(h); s.pieces.push(copyOf(first)); return JSON.stringify(s); });
-  pendingAdd = null; addOpen = false; addNote = null; addDraft.text = "";
-  selected = first.id;
+  // Busy with something else (describing the next sound, working on another clip)? Then
+  // the new sound just appears. Otherwise it is selected and the red line goes to it.
+  const busy = (addOpen && !selected && (addDraft.text.trim() || pendingAdds.length)) || (selected && selected !== first.id) || playing;
+  if (!busy) { addOpen = false; addNote = null; selected = first.id; }
+  else if (addOpen && !pendingAdds.length) addNote = { text: "Your sound is on the timeline." };
+  const box = $("add-text"), typing = box && document.activeElement === box, a = box && box.selectionStart, b = box && box.selectionEnd;
   buildTimeline();
   log("add_sound", { clip: clip.id, at: +first.start.toFixed(3) });
   afterChange(true);
-  if (!playing) seek(Math.max(0, clip.time != null ? clip.time : first.start) + 1e-6);
+  const again = $("add-text");
+  if (typing && again) { again.focus(); try { again.setSelectionRange(a, b); } catch (err) {} }
+  if (!busy) seek(Math.max(0, clip.time != null ? clip.time : first.start) + 1e-6);
 }
 
 function drawPanel() {
@@ -907,7 +930,7 @@ function drawPanel() {
     panel.appendChild(el("p", "muted", "Use the Music slider on the left of the timeline to make it louder or quieter, or press Mute to hear the video without it."));
     return;
   }
-  if (!selected && (addOpen || pendingAdd) && CAN_ADD) return drawAddPanel(panel);
+  if (!selected && addOpen && CAN_ADD) return drawAddPanel(panel);
   if (!selected) {
     panel.appendChild(el("h2", null, "Make it yours"));
     panel.appendChild(el("p", "muted", "The AI placed every sound. Now you can adjust anything that isn't quite right."));

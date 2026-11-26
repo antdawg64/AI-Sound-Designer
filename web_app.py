@@ -153,24 +153,24 @@ def cleanup() -> int:
         if folder.is_dir() and folder.stat().st_mtime < cutoff:
             shutil.rmtree(folder, ignore_errors=True)
             job_status.pop(folder.name, None)
-            job_status.pop(f"adds:{folder.name}", None)
+            for add_id in job_status.pop(f"adds:{folder.name}", None) or []:
+                job_status.pop(f"add:{folder.name}:{add_id}", None)
             removed += 1
     jobs_volume.commit()
     return removed
 
 
 @app.function(image=image, volumes={str(JOBS): jobs_volume}, cpu=2.0, memory=4096, timeout=900,
-              max_containers=4)
+              max_containers=6)
 def add_sound(job_id: str, add_id: str, ask: dict) -> dict:
     """Make one more sound for a finished video, asked for in the editor by describing it."""
     import traceback
 
     import make_sound as M
 
-    def note(**changes) -> None:
-        mine = dict(job_status.get(f"adds:{job_id}") or {})
-        mine[add_id] = {**mine.get(add_id, {}), **changes}
-        job_status[f"adds:{job_id}"] = mine
+    def note(**changes) -> None:      # its own row, so sounds made side by side never clash
+        key = f"add:{job_id}:{add_id}"
+        job_status[key] = {**(job_status.get(key) or {}), **changes}
 
     try:
         jobs_volume.reload()
@@ -205,10 +205,15 @@ class _Adds:
     """How the sounds added in the editor are coming along, kept with the job statuses."""
 
     def get(self, job_id: str):
-        return job_status.get(f"adds:{job_id}")
+        ids = job_status.get(f"adds:{job_id}") or []
+        return {i: row for i in ids if (row := job_status.get(f"add:{job_id}:{i}"))}
 
     def __setitem__(self, job_id: str, value: dict) -> None:
-        job_status[f"adds:{job_id}"] = value
+        known = job_status.get(f"adds:{job_id}") or []
+        for add_id, row in value.items():
+            if add_id not in known:           # rows already there belong to the machine making them
+                job_status[f"add:{job_id}:{add_id}"] = row
+        job_status[f"adds:{job_id}"] = list(dict.fromkeys([*known, *value]))
 
 
 def cost_summary(cost: dict) -> dict:

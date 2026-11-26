@@ -123,8 +123,8 @@ def attach(api, *, jobs: Path, get_job: Callable[[str], dict | None], refresh: C
             raise HTTPException(400, "Please choose where the sound goes.")
         mine = dict(adds.get(job_id) or {})
         under_way = [a for a in mine.values() if a.get("state") == "working" and time.time() - a["asked"] < 900]
-        if len(under_way) >= 2:
-            raise HTTPException(429, "Two sounds are already being made. Please wait for one to finish.")
+        if len(under_way) >= 5:
+            raise HTTPException(429, "Five sounds are already being made. Please wait for one to finish.")
         have = sum(bool(c.get("added")) for c in manifest["clips"]) + len(under_way)
         if have >= int(C.EDITOR_ADD_MAX):
             raise HTTPException(429, f"You can add up to {int(C.EDITOR_ADD_MAX)} sounds to one video.")
