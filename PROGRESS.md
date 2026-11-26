@@ -1,6 +1,18 @@
 # Progress
 
-_Last updated: 2026-11-25_
+_Last updated: 2026-11-26_
+
+## Reference video changed (2026-11-26)
+
+Anthony uploaded an updated Mitey vacuum video: same edit, new graphics. From now on
+the reference/test video is `/mnt/project-files/mitey_vacuum_short_polish_full_silent.mp4`
+(28 s, 1080x1920, 24 fps, sound removed; the original with sound is
+`mitey_vacuum_short_polish_full.mp4` next to it). `bash scripts/setup.sh` copies it
+into `test_videos/`. Shot cuts match the old video except the first one (about 3.5 s
+instead of 2 s). Rounds 1 to 16 were tuned and rated on the old
+`mitey_vacuum_short_living_room_silent.mp4` (kept in the project folder); comparisons
+against older outputs from round 17 on are not like for like, and the new file has no
+cached results, so its first run regenerates everything.
 
 
 ## Real recordings library (2026-11-26, round 16 rated: on by default in settings, not live yet)
