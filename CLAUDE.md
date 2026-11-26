@@ -58,7 +58,10 @@ Only start a phase when Anthony asks for it.
 
 - Code: this repo (github.com/antdawg64/ai-sound-designer).
 - Test videos: `test_videos/` (git-ignored; 5 videos, 30 to 60 s, some with talking,
-  some without, some with fast cuts).
+  some without, some with fast cuts). Reference video since 2026-11-26:
+  `/mnt/project-files/mitey_vacuum_short_polish_full_silent.mp4` (same edit as the old
+  `mitey_vacuum_short_living_room_silent.mp4`, new graphics, no sound);
+  `bash scripts/setup.sh` copies it into `test_videos/`. Do not use the old one.
 - Secrets the code reads (names only, never values): `MODAL_TOKEN_ID`,
   `MODAL_TOKEN_SECRET`, `HF_TOKEN` come from the cloud environment variables. They must
   be plain environment variables in the `ai-sound-designer` cloud environment, NOT
