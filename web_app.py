@@ -206,10 +206,15 @@ class _Adds:
 
     def get(self, job_id: str):
         ids = job_status.get(f"adds:{job_id}") or []
-        return {i: row for i in ids if (row := job_status.get(f"add:{job_id}:{i}"))}
+        old = ids if isinstance(ids, dict) else {}       # the first version kept all rows together
+        return {i: row for i in ids if (row := job_status.get(f"add:{job_id}:{i}") or old.get(i))}
 
     def __setitem__(self, job_id: str, value: dict) -> None:
         known = job_status.get(f"adds:{job_id}") or []
+        if isinstance(known, dict):                       # move first-version rows to their own keys
+            for add_id, row in known.items():
+                job_status[f"add:{job_id}:{add_id}"] = row
+            known = list(known)
         for add_id, row in value.items():
             if add_id not in known:           # rows already there belong to the machine making them
                 job_status[f"add:{job_id}:{add_id}"] = row
