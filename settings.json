@@ -78,6 +78,8 @@
                "plan_hint": "Sound detail requested: RICH. Make the soundtrack dense and detailed. List every distinct sound that can be seen in each shot, up to six per shot, including small ones (cloth, light touches, small movements), and up to twelve key moments."}
     },
     "plan_hint": "",
+    "_plan_taste": "A standing instruction about which sounds to favour, given to Claude with the first plan and with the second close look, at every sound detail level. Empty = none.",
+    "plan_taste": "",
     "_plan_second_look": "true = after the first plan, Claude looks again at the whole video much more closely (second_look_fps pictures every second) and lists every small visible action that has no sound of its own yet (a touch, a step, something dropping). Each gets its own short sound and its own clip in the editor. At most second_look_max_extra are added, none closer than second_look_min_gap seconds to a key moment already planned.",
     "plan_second_look": true,
     "second_look_fps": 6,

@@ -141,11 +141,12 @@ def plan_cues(frames: list[dict], shots: list[dict], duration: float, plan: dict
 
 @app.function(image=plan_image, secrets=[modal.Secret.from_name(C.CLAUDE_SECRET_NAME)], timeout=900)
 def plan_missed(frames: list[dict], windows: list[dict], duration: float, plan: dict,
-                model: str | None = None, most: int | None = None, effort: str | None = None) -> dict:
+                model: str | None = None, most: int | None = None, effort: str | None = None,
+                hint: str | None = None) -> dict:
     """Claude's second, closer look: visible actions that have no sound yet."""
     from soundlib.planning import ask_missed
 
-    return ask_missed(frames, windows, duration, plan, model, most, effort)
+    return ask_missed(frames, windows, duration, plan, model, most, effort, hint)
 
 
 @app.function(image=plan_image, secrets=[modal.Secret.from_name(C.CLAUDE_SECRET_NAME)], timeout=900)

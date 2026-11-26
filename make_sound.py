@@ -122,7 +122,7 @@ class Cloud:
              vibe: str | None = None) -> dict:
         payload = [{"shot": f["shot"], "time": f["time"], "jpeg": Path(f["path"]).read_bytes()}
                    for f in frames]
-        result = self.plan_fn.remote(payload, shots, duration, speech, vibe, C.PLAN_HINT or None)
+        result = self.plan_fn.remote(payload, shots, duration, speech, vibe, planning.plan_hints() or None)
         self.claude = result["usage"]
         return result["plan"]
 
@@ -132,7 +132,8 @@ class Cloud:
 
     def missed(self, frames: list[dict], windows: list[dict], duration: float, plan: dict) -> list[dict]:
         fn = self.modal.Function.from_name(APP_NAME, "plan_missed")
-        result = fn.remote(frames, windows, duration, plan, planning.look_model(), int(C.SECOND_LOOK_MAX_EXTRA), C.LOOK_EFFORT or None)
+        result = fn.remote(frames, windows, duration, plan, planning.look_model(), int(C.SECOND_LOOK_MAX_EXTRA), C.LOOK_EFFORT or None,
+                           C.PLAN_TASTE or None)
         self._add_cost(result["usage"])
         return result["actions"]
 
@@ -359,7 +360,7 @@ class Cached:
         jpegs = b"".join(Path(f["path"]).read_bytes() for f in frames)
         key = self._key("plan", hashlib.sha256(jpegs).hexdigest(), shots, speech, vibe or "",
                         C.PLAN_MODEL, hashlib.sha256(planning.SYSTEM.encode()).hexdigest(),
-                        *([C.PLAN_HINT] if C.PLAN_HINT else []))
+                        *([planning.plan_hints()] if planning.plan_hints() else []))
         path = self.folder / f"{key}.plan.json"
         if path.exists():
             self.hits += 1
@@ -382,7 +383,7 @@ class Cached:
 
     def missed(self, frames, windows, duration, plan) -> list[dict]:
         jpegs = hashlib.sha256(b"".join(f["jpeg"] for f in frames)).hexdigest()
-        key = self._key("missed", jpegs, windows, plan["shots"], plan["moments"], planning.look_model(), *([C.LOOK_EFFORT] if C.LOOK_EFFORT else []),
+        key = self._key("missed", jpegs, windows, plan["shots"], plan["moments"], planning.look_model(), *([C.LOOK_EFFORT] if C.LOOK_EFFORT else []), *([C.PLAN_TASTE] if C.PLAN_TASTE else []),
                         C.SECOND_LOOK_MAX_EXTRA, hashlib.sha256(planning.LOOK_SYSTEM.encode()).hexdigest())
         return self._json(key, "missed", lambda: self.backend.missed(frames, windows, duration, plan))
 

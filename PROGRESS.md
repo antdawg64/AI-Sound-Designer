@@ -1037,3 +1037,13 @@ New defaults written to `settings.json`:
   button), then drag, arrow keys, volume, mute or remove them together. Dragging in the
   empty rows no longer moves the red line (the top strip does; a click still does).
 - The "Put back" button on clips was removed at Anthony's request.
+
+## Round 21 (2026-11-26): more of what the character does (waiting on Anthony's rating)
+
+From his own editor edits Anthony chose one change ("just #4"): more key moments for what the character does, fewer tiny
+mechanical clicks. New setting `plan_taste` (default empty): a standing instruction that goes to the first plan and to the
+second look. Variant `character` in `variants_round21.json` vs Current on the reference video, run `20261126-r21` in the
+Sound Tuning Room; finals in `/mnt/project-files/round21/`. Cost $0.77. With the instruction the plan gained the hook
+spearing the carpet (11.4 s), the grappling gun firing (16.7 s) and the cable snapping (22.8 s), and lost the grit ticking
+in the hose and the soft end thud. Still nothing at 14 to 15 s (hook grabbing). Nothing is applied or live until he rates it.
+If it wins: put the text in `plan_taste` in settings.json, then ask before a live deploy.
