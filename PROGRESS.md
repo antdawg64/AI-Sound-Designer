@@ -3,11 +3,14 @@
 _Last updated: 2026-11-25_
 
 
-## Real recordings library (2026-11-26, round 16 waiting for ratings)
+## Real recordings library (2026-11-26, round 16 rated: on by default in settings, not live yet)
 
 Branch `claude/project-thread-aw3m54` (built on the layering branch at 7c8e047). Anthony
-asked for real recordings for common sounds ("yes on 6 too"). Off by default
-(`sfx_library: off`), **not deployed to the live apps**.
+asked for real recordings for common sounds ("yes on 6 too"). Round 16 rated 2026-11-26:
+current 2, real recordings that sound right 3 (winner, applied: `sfx_library` on,
+`library_judge` claude_sounds_alike, `library_min_score` 0.2), key moments only 2.
+**Not deployed to the live apps**: until `ai-sound-designer-library` is deployed the
+live apps cannot reach the library and simply generate every sound as before.
 
 - **Licences** (read 2026-11-25, quotes in
   `/mnt/project-files/licence_research/real_recordings_library_licences.md`): only CC0
@@ -795,3 +798,16 @@ the effects model stays HunyuanVideo-Foley (`sfx_engine: foley`). Stable Audio s
 the code as an option; its known weakness is that a continuing sound is made anew for
 every shot. An idea not yet tried: Stable Audio only where the licence blocks the
 current model (EU, UK, South Korea), so those visitors are served instead of refused.
+
+## Tuning round, 2026-11-26
+
+From Anthony's ratings in `ratings_round16_library.csv` (current settings scored 2.0 out of 5):
+
+- `library_alike`: 3.0 (better (all its settings applied))
+- `library_alike_moments`: 2.0 (same)
+
+New defaults written to `settings.json`:
+
+- `sfx_library`: `off` to `on`
+- `library_judge`: `claude` to `claude_sounds_alike`
+- `library_min_score`: `0.25` to `0.2`

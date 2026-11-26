@@ -98,12 +98,15 @@ class Backend:
         self.api_calls = []
 
 
-def test_off_by_default_changes_nothing():
+def test_switched_off_changes_nothing():
     seg = {"index": 1000, "time": 1.0, "clip_start": 0.75, "clip_end": 2.25}
-    assert C.SFX_LIBRARY == "off"
-    assert L.cache_tag(seg) == []
-    assert L.find(Backend(), "door slam", seg, search=lambda *a: 1 / 0) is None
-    assert "library" not in seg
+    C.override({"sfx_library": "off"})
+    try:
+        assert L.cache_tag(seg) == []
+        assert L.find(Backend(), "door slam", seg, search=lambda *a: 1 / 0) is None
+        assert "library" not in seg
+    finally:
+        C.reset()
 
 
 def test_find_uses_a_chosen_recording_and_records_where_it_came_from():
