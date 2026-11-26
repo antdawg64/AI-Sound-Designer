@@ -1435,6 +1435,10 @@ function boxSelect(ev) {
 }
 function scrub(ev) {
   const lanes = $("lanes"), at = e => (e.clientX - lanes.getBoundingClientRect().left) / pps;
+  // Dragging the red line while it plays: playing waits, so the picture can follow the
+  // finger frame by frame, and carries on from the new spot when the finger lifts.
+  const wasPlaying = playing;
+  if (wasPlaying) stopAll();
   seek(at(ev));
   const target = ev.currentTarget; target.setPointerCapture(ev.pointerId);
   const onMove = m => {
@@ -1442,7 +1446,10 @@ function scrub(ev) {
     if (m.clientX > box.right - 24) sc.scrollLeft += 14; else if (m.clientX < box.left + 24) sc.scrollLeft -= 14;
     seek(at(m));
   };
-  const onUp = () => { target.removeEventListener("pointermove", onMove); target.removeEventListener("pointerup", onUp); target.removeEventListener("pointercancel", onUp); };
+  const onUp = () => {
+    target.removeEventListener("pointermove", onMove); target.removeEventListener("pointerup", onUp); target.removeEventListener("pointercancel", onUp);
+    if (wasPlaying && !playing) play(position);
+  };
   target.addEventListener("pointermove", onMove); target.addEventListener("pointerup", onUp); target.addEventListener("pointercancel", onUp);
 }
 
