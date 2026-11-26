@@ -136,7 +136,7 @@ summary is one sentence saying what the video shows."""
 
 
 def build_user_content(frames: list[dict], shots: list[dict], duration: float,
-                       speech: list[dict], vibe: str | None = None) -> list[dict]:
+                       speech: list[dict], vibe: str | None = None, hint: str | None = None) -> list[dict]:
     """The message for Claude. Each frame dict needs: shot, time, jpeg (bytes)."""
     lines = [f"The video is {duration:.2f} seconds long and has {len(shots)} shot(s):"]
     for s in shots:
@@ -149,6 +149,8 @@ def build_user_content(frames: list[dict], shots: list[dict], duration: float,
         lines.append("Nobody speaks in this video.")
     if vibe:
         lines.append(f"Requested vibe for the music: {vibe}.")
+    if hint:   # for example the sound detail level; it outranks the usual counts
+        lines.append(hint + " Where this differs from your usual limits on how many sounds to list, follow this.")
     content: list[dict] = [{"type": "text", "text": "\n".join(lines)}]
     for f in frames:
         content.append({"type": "text", "text": f"Shot {f['shot']}, frame at {f['time']:.2f}s:"})
@@ -161,7 +163,7 @@ def build_user_content(frames: list[dict], shots: list[dict], duration: float,
 
 
 def ask_claude(frames: list[dict], shots: list[dict], duration: float, speech: list[dict],
-               vibe: str | None = None) -> dict:
+               vibe: str | None = None, hint: str | None = None) -> dict:
     """Send the key frames to Claude and get the plan back as a dict."""
     import anthropic
 
@@ -170,7 +172,7 @@ def ask_claude(frames: list[dict], shots: list[dict], duration: float, speech: l
         model=C.PLAN_MODEL,
         max_tokens=16000,
         system=SYSTEM,
-        messages=[{"role": "user", "content": build_user_content(frames, shots, duration, speech, vibe)}],
+        messages=[{"role": "user", "content": build_user_content(frames, shots, duration, speech, vibe, hint)}],
         output_format=SoundPlan,
     )
     if response.stop_reason == "refusal":

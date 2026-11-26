@@ -268,6 +268,16 @@
           </div>
         </div>
 
+        <div class="choice-wrap" id="detail-field">
+          <div class="legend" id="detail-legend">Sound detail</div>
+          <div class="choice" role="radiogroup" aria-labelledby="detail-legend">
+            <label><input type="radio" name="detail" value="minimal"> <span><b>Minimal</b></span></label>
+            <label><input type="radio" name="detail" value="balanced" checked> <span><b>Balanced</b></span></label>
+            <label><input type="radio" name="detail" value="rich"> <span><b>Rich</b></span></label>
+          </div>
+          <p class="muted" id="detail-hint" style="margin:6px 2px 0">The main sounds, the big moments and the small actions in between.</p>
+        </div>
+
         <label class="field" for="vibe" id="vibe-field">Feeling for the music <small>(optional)</small>
           <input type="text" id="vibe" maxlength="120" placeholder="for example: tense, playful, epic, calm">
         </label>
@@ -480,7 +490,14 @@ $("country").addEventListener("change", ready);
 $("agree").addEventListener("change", ready);
 const parts = () => document.querySelector("input[name=parts]:checked").value;
 document.querySelectorAll("input[name=parts]").forEach(r => r.addEventListener("change", () =>
-  $("vibe-field").classList.toggle("hidden", parts() === "effects")));
+  { $("vibe-field").classList.toggle("hidden", parts() === "effects");
+    $("detail-field").classList.toggle("hidden", parts() === "music"); }));
+const detail = () => (document.querySelector("input[name=detail]:checked") || {}).value || "balanced";
+const DETAIL_HINTS = { minimal: "Only the main sounds and the biggest moments. Clean and sparse.",
+  balanced: "The main sounds, the big moments and the small actions in between.",
+  rich: "Every small action gets a sound. Dense and detailed, and takes a little longer." };
+document.querySelectorAll("input[name=detail]").forEach(r => r.addEventListener("change", () =>
+  { $("detail-hint").textContent = DETAIL_HINTS[detail()]; }));
 
 // --- Signing in. The page is open to everyone; adding sound needs an account. A video
 // chosen before signing in is kept in this browser and sent as soon as they are back.
@@ -533,7 +550,7 @@ function shelf(mode, work) {
 }
 async function signInFirst() {
   await shelf("readwrite", s => { s.put({ file, name: file.name, country: $("country").value, parts: parts(),
-    vibe: $("vibe").value, at: Date.now() }, "video"); });
+    vibe: $("vibe").value, detail: detail(), at: Date.now() }, "video"); });
   location.href = (me && me.login_url) || "/login";
 }
 async function takeWaiting() {
@@ -546,6 +563,8 @@ async function takeWaiting() {
   if ([...$("country").options].some(o => o.value === kept.country)) $("country").value = kept.country;
   const radio = document.querySelector(`input[name=parts][value="${kept.parts}"]`);
   if (radio) { radio.checked = true; radio.dispatchEvent(new Event("change")); }
+  const level = document.querySelector(`input[name=detail][value="${kept.detail}"]`);
+  if (level) { level.checked = true; level.dispatchEvent(new Event("change")); }
   $("vibe").value = kept.vibe || ""; $("agree").checked = true; ready();
   return !$("go").disabled;
 }
@@ -563,6 +582,7 @@ $("form").addEventListener("submit", e => {
   data.append("agree", "yes");
   data.append("vibe", parts() === "effects" ? "" : $("vibe").value);
   data.append("parts", parts());
+  data.append("detail", detail());
   if (new URLSearchParams(location.search).get("test") === "tones") data.append("test_tones", "yes");
   show("sending");
   const xhr = new XMLHttpRequest();

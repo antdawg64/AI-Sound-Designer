@@ -127,7 +127,7 @@ def run_job(job_id: str, test_tones: bool = False) -> dict:
     try:
         backend = M.TestTones() if test_tones else M.Cloud()
         report = M.make_sound(video, folder / "out", backend, vibe=job.get("vibe") or None,
-                              parts=job.get("parts", "both"))
+                              parts=job.get("parts", "both"), detail=job.get("detail") or None)
         (folder / "report.json").write_text(json.dumps(report, indent=2))
         jobs_volume.commit()
         _update(job_id, state="done", step="Finished", step_number=6, passed=report["passed"],
@@ -258,8 +258,10 @@ def web():
     @api.post("/api/upload")
     def upload(request: Request, video: UploadFile = File(...), country: str = Form(...),
                agree: str = Form(""), vibe: str = Form(""), parts: str = Form("both"),
-               test_tones: str = Form("")):
+               test_tones: str = Form(""), detail: str = Form("balanced")):
         country = country.strip().upper()
+        if detail not in ("minimal", "balanced", "rich"):
+            detail = "balanced"
         ip_country = _country_of(visitor_ip(request))
         if agree != "yes":
             raise HTTPException(400, "Please tick the box to accept the terms.")
@@ -303,7 +305,7 @@ def web():
         job = {"id": job_id, "state": "queued", "step": "Waiting to start", "step_number": 0,
                "created": time.time(), "name": Path(video.filename or "video").stem[:80],
                "ext": ext, "seconds": round(seconds, 1), "vibe": vibe.strip()[:120],
-               "parts": parts, "country": country, "ip_country": ip_country}
+               "parts": parts, "detail": detail, "country": country, "ip_country": ip_country}
         maker = account_of(request)
         if maker:
             job["owner"] = maker

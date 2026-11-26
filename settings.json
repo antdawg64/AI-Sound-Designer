@@ -68,6 +68,16 @@
     "moment_snap_max_seconds": 0.35,
     "_sfx_cleanup": "true = every sound is tidied before mixing: rumble removed, dead air trimmed, and for key moments the hiss between hits pushed down and the attack sharpened a little.",
     "sfx_cleanup": false,
+    "_sound_detail": "How many sound effects a video gets: minimal, balanced or rich. The person can choose it on the web page before adding sound. Each level is a set of changes to other settings (sound_detail_levels); balanced changes nothing. plan_hint is an extra instruction given to Claude with the first plan.",
+    "sound_detail": "balanced",
+    "sound_detail_levels": {
+      "minimal": {"max_moments": 4, "plan_second_look": false,
+                  "plan_hint": "Sound detail requested: MINIMAL. Keep the soundtrack sparse and clean. List only the one main sound of each shot (two only when both are clearly essential), and no more than four key moments: only the biggest, most important ones."},
+      "balanced": {},
+      "rich": {"max_moments": 12, "second_look_max_extra": 20, "second_look_min_gap": 0.3,
+               "plan_hint": "Sound detail requested: RICH. Make the soundtrack dense and detailed. List every distinct sound that can be seen in each shot, up to six per shot, including small ones (cloth, light touches, small movements), and up to twelve key moments."}
+    },
+    "plan_hint": "",
     "_plan_second_look": "true = after the first plan, Claude looks again at the whole video much more closely (second_look_fps pictures every second) and lists every small visible action that has no sound of its own yet (a touch, a step, something dropping). Each gets its own short sound and its own clip in the editor. At most second_look_max_extra are added, none closer than second_look_min_gap seconds to a key moment already planned.",
     "plan_second_look": true,
     "second_look_fps": 6,

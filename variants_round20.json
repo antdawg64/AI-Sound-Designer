@@ -1,0 +1,22 @@
+{
+  "_about": "Round 20 (2026-11-26): Anthony said yes to a 'Sound detail' choice on the web page (Minimal, Balanced, Rich). The run's 'current' tile is Balanced, today's live settings with the real-recordings library.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "minimal",
+      "label": "Minimal",
+      "setting": "sound_detail",
+      "value": "minimal",
+      "why": "Only the main sound of each shot and at most four big moments. No second close look."
+    },
+    {
+      "id": "rich",
+      "label": "Rich",
+      "setting": "sound_detail",
+      "value": "rich",
+      "why": "Claude lists every sound it can see, up to six per shot and twelve key moments, and the second close look may add up to twenty more small ones."
+    }
+  ]
+}

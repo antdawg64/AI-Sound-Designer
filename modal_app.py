@@ -124,11 +124,11 @@ def _to_numpy(tensor):
 
 @app.function(image=plan_image, secrets=[modal.Secret.from_name(C.CLAUDE_SECRET_NAME)], timeout=600)
 def plan_sound(frames: list[dict], shots: list[dict], duration: float, speech: list[dict],
-               vibe: str | None = None) -> dict:
+               vibe: str | None = None, hint: str | None = None) -> dict:
     """Ask Claude for the sound plan. `frames` items: {shot, time, jpeg}."""
     from soundlib.planning import ask_claude
 
-    return ask_claude(frames, shots, duration, speech, vibe)
+    return ask_claude(frames, shots, duration, speech, vibe, hint)
 
 
 @app.function(image=plan_image, secrets=[modal.Secret.from_name(C.CLAUDE_SECRET_NAME)], timeout=600)

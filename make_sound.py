@@ -108,7 +108,7 @@ class Cloud:
              vibe: str | None = None) -> dict:
         payload = [{"shot": f["shot"], "time": f["time"], "jpeg": Path(f["path"]).read_bytes()}
                    for f in frames]
-        result = self.plan_fn.remote(payload, shots, duration, speech, vibe)
+        result = self.plan_fn.remote(payload, shots, duration, speech, vibe, C.PLAN_HINT or None)
         self.claude = result["usage"]
         return result["plan"]
 
@@ -344,7 +344,8 @@ class Cached:
     def plan(self, frames, shots, duration, speech, vibe=None) -> dict:
         jpegs = b"".join(Path(f["path"]).read_bytes() for f in frames)
         key = self._key("plan", hashlib.sha256(jpegs).hexdigest(), shots, speech, vibe or "",
-                        C.PLAN_MODEL, hashlib.sha256(planning.SYSTEM.encode()).hexdigest())
+                        C.PLAN_MODEL, hashlib.sha256(planning.SYSTEM.encode()).hexdigest(),
+                        *([C.PLAN_HINT] if C.PLAN_HINT else []))
         path = self.folder / f"{key}.plan.json"
         if path.exists():
             self.hits += 1
@@ -562,8 +563,30 @@ def _try_lyria(backend, caption: str, bpm: int, cues: dict | None, duration: flo
         return None
 
 
+DETAILS = ("minimal", "balanced", "rich")
+
+
 def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
-               vibe: str | None = None, music_flavour: str = "", parts: str = "both") -> dict:
+               vibe: str | None = None, music_flavour: str = "", parts: str = "both",
+               detail: str | None = None) -> dict:
+    """detail: how many sound effects, "minimal", "balanced" or "rich" (default: the
+    sound_detail setting). Each level is a set of setting changes for this one video."""
+    detail = detail or C.SOUND_DETAIL
+    if detail not in DETAILS:
+        raise ValueError(f"detail must be one of {DETAILS}, not {detail!r}")
+    level = dict(C.SOUND_DETAIL_LEVELS.get(detail) or {})
+    before = {name: getattr(C, name.upper()) for name in level}
+    C.override(level)
+    try:
+        report = _make_sound(video, out_dir, backend, keep_work, vibe, music_flavour, parts, detail)
+    finally:
+        C.override(before)
+    return report
+
+
+def _make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
+                vibe: str | None = None, music_flavour: str = "", parts: str = "both",
+                detail: str = "balanced") -> dict:
     """parts: "both" (effects and music), "effects" (effects only) or "music" (music only).
     The part that is left out is written as a silent file, so every output always exists."""
     if parts not in PARTS:
@@ -798,7 +821,8 @@ def make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
         report = {
             "video": str(video), "output_dir": str(out_dir), "duration": duration,
             "test_tones_only": isinstance(getattr(backend, "backend", backend), TestTones),
-            "vibe": vibe, "music_flavour": music_flavour, "parts": parts, "settings": C.current(),
+            "vibe": vibe, "music_flavour": music_flavour, "parts": parts, "sound_detail": detail,
+            "settings": C.current(),
             "passed": result["passed"], "checks": result["checks"],
             "shots": shots, "speech": speech, "kept_audio": kept,
             "segments": [{k: v for k, v in s.items() if k != "audio"} for s in segments],
