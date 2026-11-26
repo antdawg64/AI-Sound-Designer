@@ -770,7 +770,7 @@ def _make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             batches: dict = {}
             for n, item in enumerate(waiting):
                 batches.setdefault(item[3] if item[3] is not None else n, []).append(item)
-            workers = max(1, int(C.SFX_PARALLEL)) if C.RUN_PARALLEL else 1
+            workers = max(1, int(C.SFX_PARALLEL), int(C.SFX_WORKERS)) if C.RUN_PARALLEL else 1
             if workers == 1 or len(batches) < 2:
                 for batch in batches.values():
                     one(batch)
