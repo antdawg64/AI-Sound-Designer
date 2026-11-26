@@ -92,7 +92,7 @@ live apps cannot reach the library and simply generate every sound as before.
 | 2026-11-25/26 | Library build (download, sort, index) | 2125 GPU + CPU | about $1.50 |
 | 2026-11-26 | Round 16: baseline and library versions of the vacuum video | 226 | $0.51 |
 
-## Round 19 (2026-11-26): the round 18 result for less (waiting for Anthony's ratings)
+## Round 19 (2026-11-26): the round 18 result for less (rated, applied, LIVE)
 
 Anthony chose "Cut the cost first, then go live". Measured without sound first (frame choice
 against Opus at full size, 24 fps video): Opus with small pictures within 1 frame on 8 of 10
@@ -102,8 +102,7 @@ little saving. The second look is not repeatable: each run finds a somewhat diff
 New settings: `look_model`, `look_effort`, picture sizes. Tiles (run `20261126-r19`): round 18
 winner (37 cents extra), smaller pictures on Opus (18 cents), smaller pictures on Sonnet (12 cents).
 Files in /mnt/project-files/round19/. Cost $0.70 plus about $0.60 of measuring.
-After his scores: write the winner's settings into settings.json, merge 7q9yop, then deploy live
-(his card answer covers going live once the cost is cut and holds up).
+Rated 2026-11-26 06:41 UTC (ratings_round19.csv): full cost 3, smaller pictures 4 (winner), smaller pictures + Sonnet 3. Applied to settings.json, merged 7q9yop (203bdb7) and deployed LIVE at 06:42 UTC (GPU app, stable, web). Checked with a full run of the reference video through the live GPU app: all checks pass, 2 extra sounds found, 6 moments pinned, total cost $0.50 for the video.
 
 ## Round 18 (2026-11-26): missing sounds and exact timing (rated, applied on the branch, not live)
 
