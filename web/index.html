@@ -50,7 +50,6 @@
   .nav .account a.signin { display: inline-block; padding: 9px 18px; border-radius: 999px; border: 1px solid var(--line, #d9dbe3);
     color: var(--ink); background: transparent; text-decoration: none; font-weight: 600; font-size: 14px; }
   .nav .account a.signin:hover { border-color: var(--ink); }
-  .nav .account a.out { color: var(--muted); }
   body:not([data-view="upload"]) .nav .account { margin-left: auto; }
 
   /* Hero */
@@ -120,6 +119,34 @@
   /* Progress and result */
   .solo { max-width: 620px; margin: 28px auto 96px; }
   .solo.result { max-width: 760px; }
+  .mine-list { margin: 18px 0 22px; border-top: 1px solid var(--line); }
+  .mine-list .row { display: flex; align-items: center; gap: 14px; padding: 14px 2px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .mine-list .what { flex: 1 1 240px; min-width: 0; }
+  .mine-list .what b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mine-list .what span { color: var(--muted); font-size: 13.5px; }
+  .mine-list .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .mine-list .acts a { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .mine-list .acts a:hover { border-color: var(--ink); }
+  .mine-list .empty { padding: 26px 2px; color: var(--muted); }
+  .nav .account { position: relative; }
+  .acct-btn { display: flex; align-items: center; gap: 8px; padding: 5px 10px 5px 5px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 600;
+    box-shadow: none; width: auto; min-height: 0; line-height: 1; }
+  .acct-btn:hover, .acct-btn[aria-expanded="true"] { border-color: var(--ink); }
+  .acct-btn .face { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); text-transform: uppercase; }
+  .acct-btn svg { width: 12px; height: 12px; color: var(--muted); transition: transform .15s; }
+  .acct-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+  .acct-menu { position: absolute; right: 0; top: calc(100% + 8px); min-width: 230px; max-width: min(300px, calc(100vw - 32px)); z-index: 50;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px; }
+  .acct-menu .me { padding: 10px 12px 12px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  .acct-menu .me small { display: block; color: var(--muted); font-size: 12px; }
+  .acct-menu .me b { display: block; color: var(--ink); font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .acct-menu a { display: block; padding: 9px 12px; border-radius: 9px; color: var(--ink); text-decoration: none; font-size: 14.5px; font-weight: 500; }
+  .acct-menu a:hover, .acct-menu a:focus-visible { background: var(--soft); outline: none; }
+  .acct-menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+  .nav .account a, .nav .brand span { white-space: nowrap; }
+  @media (max-width: 420px) { .nav { gap: 12px; } .nav .brand span { font-size: 17px; } }
   .bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 18px 0 8px; }
   .bar div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .6s ease; }
   .steps { list-style: none; padding: 0; margin: 18px 0 0; font-size: 15px; }
@@ -175,8 +202,8 @@
     .grid3, .grid4 { grid-template-columns: 1fr 1fr; }
     .split { grid-template-columns: 1fr; gap: 28px; }
     .nav .links { display: none; }
-    .nav .account { margin-left: auto; }
-    .nav .account .who { display: none; }
+    .nav .account, .nav .links + .account { margin-left: auto; }
+    .acct-btn .who { display: none; }
     .wave { display: none; }
     section.band { padding: 56px 0; }
   }
@@ -285,6 +312,14 @@
     <a class="button secondary wide" href="/">Do another video</a>
   </section>
 
+  <!-- My videos -->
+  <section id="mine" class="card solo result hidden">
+    <h2>My videos</h2>
+    <p class="muted" id="mine-sub"></p>
+    <div id="mine-list" class="mine-list"></div>
+    <a class="button wide" href="/">Add sound to a video</a>
+  </section>
+
   <!-- Failed / not found -->
   <section id="failed" class="card solo hidden">
     <h2>Something went wrong</h2>
@@ -373,7 +408,7 @@ window.fetch = async (...args) => {
 const STEPS = ["Reading the video", "Planning the sound", "Making the sound effects",
                "Composing the music", "Mixing", "Checking the result"];
 const show = id => {
-  ["upload", "sending", "working", "done", "failed", "blocked"].forEach(s => $(s).classList.toggle("hidden", s !== id));
+  ["upload", "sending", "working", "done", "failed", "blocked", "mine"].forEach(s => $(s).classList.toggle("hidden", s !== id));
   document.body.dataset.view = id;   // the pitch and the sections below only show with the upload form
   $("hero").classList.toggle("hidden", id !== "upload");
   if (id !== "upload") window.scrollTo(0, 0);
@@ -440,12 +475,33 @@ document.querySelectorAll("input[name=parts]").forEach(r => r.addEventListener("
 // --- Signing in. The page is open to everyone; adding sound needs an account. A video
 // chosen before signing in is kept in this browser and sent as soon as they are back.
 let me = null;
+const ACCOUNT_MENU = [
+  { label: "My videos", href: "/videos" },
+  { line: true },
+  { label: "Sign out", href: "/logout" },
+];
 function drawAccount() {
   const box = $("account"); box.textContent = "";
   if (!me || me.open) return;
   if (me.signed_in) {
-    if (me.email) { const w = document.createElement("span"); w.className = "who"; w.textContent = me.email; box.appendChild(w); }
-    const a = document.createElement("a"); a.className = "out"; a.href = "/logout"; a.textContent = "Sign out"; box.appendChild(a);
+    // The account menu. To add an entry later (Settings, Billing), add a line to ACCOUNT_MENU.
+    const make = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+    const btn = make("button", "acct-btn"); btn.type = "button";
+    btn.setAttribute("aria-haspopup", "menu"); btn.setAttribute("aria-expanded", "false"); btn.setAttribute("aria-label", "Your account");
+    btn.appendChild(make("span", "face", (me.email || "?").slice(0, 1)));
+    btn.appendChild(make("span", "who", me.email ? me.email.split("@")[0] : "Account"));
+    btn.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>');
+    const menu = make("div", "acct-menu hidden"); menu.setAttribute("role", "menu");
+    if (me.email) { const who = make("div", "me"); who.appendChild(make("small", null, "Signed in as")); who.appendChild(make("b", null, me.email)); who.lastChild.title = me.email; menu.appendChild(who); }
+    for (const item of ACCOUNT_MENU) {
+      if (item.line) { menu.appendChild(make("hr")); continue; }
+      const a = make("a", null, item.label); a.href = item.href; a.setAttribute("role", "menuitem"); menu.appendChild(a);
+    }
+    const open = yes => { menu.classList.toggle("hidden", !yes); btn.setAttribute("aria-expanded", yes ? "true" : "false"); };
+    btn.addEventListener("click", e => { e.stopPropagation(); open(menu.classList.contains("hidden")); });
+    document.addEventListener("click", e => { if (!menu.contains(e.target)) open(false); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !menu.classList.contains("hidden")) { open(false); btn.focus(); } });
+    box.appendChild(btn); box.appendChild(menu);
   } else {
     const a = document.createElement("a"); a.className = "signin"; a.href = me.login_url || "/login"; a.textContent = "Sign in"; box.appendChild(a);
   }
@@ -577,12 +633,39 @@ function finished(id, job) {
   show("done");
 }
 
+async function showMine() {
+  let data = { videos: [] };
+  try { data = await (await fetch("/api/my-videos", { cache: "no-store" })).json(); } catch (err) {}
+  const days = data.keep_days || (cfg ? cfg.keep_days : 7);
+  $("mine-sub").textContent = `Videos you made while signed in. Each one is kept for ${days} days, then deleted.`;
+  const list = $("mine-list"); list.textContent = "";
+  const make = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const label = { both: "effects and music", effects: "sound effects only", music: "music only" };
+  if (!data.videos.length) list.appendChild(make("div", "empty", "No videos yet. Videos you make from now on will show up here."));
+  for (const v of data.videos) {
+    const row = make("div", "row"), what = make("div", "what");
+    what.appendChild(make("b", null, v.name || "Video"));
+    const when = new Date(v.created * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const state = v.state === "done" ? (v.days_left > 0 ? `${v.days_left} day${v.days_left === 1 ? "" : "s"} left` : "deleted within a day")
+      : v.state === "failed" ? "didn't work" : "being made";
+    what.appendChild(make("span", null, [when, label[v.parts] || label.both, v.seconds ? Math.round(v.seconds) + " s" : "", state, v.test_tones ? "test tones" : ""].filter(Boolean).join(" · ")));
+    row.appendChild(what);
+    const acts = make("div", "acts");
+    const link = (text, href, download) => { const a = make("a", null, text); a.href = href; if (download) a.setAttribute("download", ""); acts.appendChild(a); };
+    link(v.state === "done" ? "Open" : "View", "/j/" + v.id);
+    if (v.state === "done") { link("Fine-tune", "/edit/" + v.id); link("Download", `/api/job/${v.id}/final.mp4?download=1`, true); }
+    row.appendChild(acts); list.appendChild(row);
+  }
+  show("mine");
+}
+
 async function start() {
   try { cfg = await (await fetch("/api/config", { cache: "no-store" })).json(); } catch (err) { cfg = null; }
   try { me = await (await plainFetch("/api/me", { cache: "no-store" })).json(); } catch (err) { me = null; }
   drawAccount();
   const m = location.pathname.match(/^\/j\/([A-Za-z0-9]+)/);
   if (m) return watch(m[1]);
+  if (location.pathname === "/videos") return showMine();
   if (cfg && cfg.you_are_blocked) return show("blocked");
   if (cfg) $("keep-days").textContent = cfg.keep_days;
   fillCountries(cfg && cfg.your_country);

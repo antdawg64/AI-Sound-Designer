@@ -68,6 +68,21 @@
     "moment_snap_max_seconds": 0.35,
     "_sfx_cleanup": "true = every sound is tidied before mixing: rumble removed, dead air trimmed, and for key moments the hiss between hits pushed down and the attack sharpened a little.",
     "sfx_cleanup": false,
+    "_plan_second_look": "true = after the first plan, Claude looks again at the whole video much more closely (second_look_fps pictures every second) and lists every small visible action that has no sound of its own yet (a touch, a step, something dropping). Each gets its own short sound and its own clip in the editor. At most second_look_max_extra are added, none closer than second_look_min_gap seconds to a key moment already planned.",
+    "plan_second_look": true,
+    "second_look_fps": 6,
+    "second_look_long_side": 256,
+    "second_look_max_extra": 12,
+    "second_look_min_gap": 0.4,
+    "_look_model": "Which Claude model does the second close look and the frame-exact timing. Empty = the same as plan_model.",
+    "look_model": "",
+    "_look_effort": "How hard Claude thinks during those two looks: low, medium or high. Lower is cheaper. Empty = the model's own default.",
+    "look_effort": "",
+    "_moment_timing": "planned = a key moment's sound sits where the first plan put it (judged from stills about a third of a second apart). frame = Claude is shown every single frame around each key moment (moment_pin_window seconds either side) and picks the exact frame where it happens; the sound is then slid so its start lands on that frame (by at most moment_pin_reach seconds).",
+    "moment_timing": "frame",
+    "moment_pin_window": 0.34,
+    "moment_pin_long_side": 256,
+    "moment_pin_reach": 1.0,
     "_sfx_pan": "How far a sound moves left or right to match where its source is on screen, 0 (all in the middle) to 1 (hard left or right).",
     "sfx_pan": 0.0,
     "_sfx_layering": "single = one effect per key moment, as before. layered = film-style: each key moment is built from its main sound plus up to two supporting sounds made separately (a whoosh leading in, a detail just after), and one quiet steady background of the place runs under the whole video and across the cuts. Every layer is its own clip in the editor.",
@@ -177,7 +192,9 @@
   "cost": {
     "gpu_type": "L40S",
     "gpu_dollars_per_second": {"L40S": 0.000542, "A100": 0.000583, "A100-80GB": 0.000694},
-    "claude_dollars_per_mtok": {"input": 4.0, "output": 20.0}
+    "claude_dollars_per_mtok": {"input": 4.0, "output": 20.0},
+    "_claude_model_dollars_per_mtok": "Prices for other Claude models, used when look_model names one.",
+    "claude_model_dollars_per_mtok": {"claude-opus-5-5": {"input": 4.0, "output": 20.0}, "claude-sonnet-5-5": {"input": 2.0, "output": 10.0}, "claude-haiku-5-5": {"input": 0.1, "output": 0.5}}
   },
 
   "web": {

@@ -92,6 +92,37 @@ live apps cannot reach the library and simply generate every sound as before.
 | 2026-11-25/26 | Library build (download, sort, index) | 2125 GPU + CPU | about $1.50 |
 | 2026-11-26 | Round 16: baseline and library versions of the vacuum video | 226 | $0.51 |
 
+## Round 19 (2026-11-26): the round 18 result for less (waiting for Anthony's ratings)
+
+Anthony chose "Cut the cost first, then go live". Measured without sound first (frame choice
+against Opus at full size, 24 fps video): Opus with small pictures within 1 frame on 8 of 10
+moments; Sonnet 5.5 looser (some 3 to 9 frames off); Haiku 5.5 unreliable on timing (7 to 11
+frames off on a third); `look_effort: low` finds fewer actions (2 to 4 instead of 6 to 7) for
+little saving. The second look is not repeatable: each run finds a somewhat different set.
+New settings: `look_model`, `look_effort`, picture sizes. Tiles (run `20261126-r19`): round 18
+winner (37 cents extra), smaller pictures on Opus (18 cents), smaller pictures on Sonnet (12 cents).
+Files in /mnt/project-files/round19/. Cost $0.70 plus about $0.60 of measuring.
+After his scores: write the winner's settings into settings.json, merge 7q9yop, then deploy live
+(his card answer covers going live once the cost is cut and holds up).
+
+## Round 18 (2026-11-26): missing sounds and exact timing (rated, applied on the branch, not live)
+
+Anthony: "i feel like we're missing sound fx" and "timing isn't perfect"; yes to a second close
+look plus frame-exact timing. First round on the new reference video
+(`mitey_vacuum_short_polish_full_silent.mp4`). Rated 2026-11-26 06:08 UTC (ratings_round18.csv): current 2, second look 3, frame timing 3, both 4 (winner). Both are now the defaults in settings.json on this branch; NOT live until Anthony says so. The two settings:
+- `plan_second_look`: Claude goes through the whole video again at 8 pictures a second and
+  lists actions with no sound yet; each becomes an extra key moment (found 7 here).
+- `moment_timing: frame`: Claude sees every frame around each key moment and picks the exact
+  one; the sound is slid so it starts on that frame.
+Code: `planning.ask_missed/add_missed/ask_pins/apply_pins`, `media.frames_at`, Modal functions
+`plan_missed` and `plan_pins` (on the trial app `ai-sound-designer-dev` only; the LIVE GPU app
+does not have them yet, so deploy it before turning either setting on).
+Run: `SOUND_APP=ai-sound-designer-dev python tune.py <video> --variants variants_round18.json`.
+Tiles on the Sound Tuning Room, run `20261126-r18`; files in /mnt/project-files/round18/.
+Cost $1.36. Per video the extra Claude cost is about $0.17 (second look) plus about $0.02 per
+key moment for timing ($0.20 with 11 moments), more than the 5 to 10 cents first estimated;
+smaller pictures or a cheaper model for these two looks would cut it.
+
 ## Round 15 (2026-11-25): better effects around the same model (rated)
 
 Anthony said yes to: one sound at a time, several takes with a judge, snap to the action,
@@ -878,3 +909,12 @@ New defaults written to `settings.json`:
 - `sfx_sources`: `mixed` to `separate`
 - `sfx_lufs_no_voice`: `-34` to `-30`
 - `shot_level_db`: `{"quiet": -10.0, "medium": -5.0, "loud": 0.0}` to `{"quiet": -4.0, "medium": -2.0, "loud": 0.0}`
+## My videos (Nov 26, 2026)
+
+- Each new video records the account that made it (`owner` in the job, and a list per
+  account in the jobs Dict under `mine:<account>`). Page `/videos` ("My videos", linked
+  top right when signed in) lists them with Open, Fine-tune and Download, and days left.
+- A video with an owner can only be opened by that account (and the site owner's
+  addresses). Videos made before this have no owner: they are in nobody's list and stay
+  open to any signed-in person who has the link, until they are deleted after 7 days.
+

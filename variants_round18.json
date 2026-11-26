@@ -1,0 +1,28 @@
+{
+  "_about": "Round 18 (2026-11-26): Anthony felt sounds were missing and timing was not perfect, and said yes to a second close look plus frame-exact timing. First round on the new reference video (mitey_vacuum_short_polish_full_silent.mp4). Round 17 was the real-recordings thread's.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "second_look",
+      "label": "Second close look",
+      "setting": "plan_second_look",
+      "value": true,
+      "why": "After the first plan, Claude goes through the whole video again at 8 pictures per second and adds a sound for every small action that had none."
+    },
+    {
+      "id": "frame_timing",
+      "label": "Frame-exact timing",
+      "setting": "moment_timing",
+      "value": "frame",
+      "why": "For each key moment Claude is shown every single frame around it and picks the exact one. The sound is slid so it starts on that frame."
+    },
+    {
+      "id": "both",
+      "label": "Second look and frame-exact timing",
+      "settings": {"plan_second_look": true, "moment_timing": "frame"},
+      "why": "Both together: more sounds, each placed on its exact frame."
+    }
+  ]
+}
