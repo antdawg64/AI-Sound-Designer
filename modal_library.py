@@ -258,9 +258,9 @@ class Search:
 
         lists = self._shortlists(asks, opts)
         dollars, model, picks = 0.0, None, None
-        if opts.get("judge") == "claude" and any(lists):
+        if str(opts.get("judge", "")).startswith("claude") and any(lists):
             try:
-                judged = L.ask_judge(asks, lists, opts["judge_model"])
+                judged = L.ask_judge(asks, lists, opts["judge_model"], opts["judge"])
                 picks, dollars, model = judged["picks"], judged["dollars"], judged["model"]
             except Exception as exc:        # no judge: fall back to the score alone, but be stricter
                 print(f"judge failed: {exc}", flush=True)

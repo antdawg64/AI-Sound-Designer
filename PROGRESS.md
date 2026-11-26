@@ -2,6 +2,60 @@
 
 _Last updated: 2026-11-25_
 
+
+## Real recordings library (2026-11-26, round 16 waiting for ratings)
+
+Branch `claude/project-thread-aw3m54` (built on the layering branch at 7c8e047). Anthony
+asked for real recordings for common sounds ("yes on 6 too"). Off by default
+(`sfx_library: off`), **not deployed to the live apps**.
+
+- **Licences** (read 2026-11-25, quotes in
+  `/mnt/project-files/licence_research/real_recordings_library_licences.md`): only CC0
+  recordings, because customers download `sfx.wav` and see each sound as an editor
+  clip, so the sounds themselves are handed on. Source: FSD50K
+  (zenodo.org/records/4060432), CC0 clips only, no voices, no music. The collection is
+  CC-BY: **credit FSD50K on the site before this goes live.** Rejected: Sonniss,
+  Pixabay, Freesound's API. BigSoundBank is CC0 and the best quality, but its owner asks
+  automated tools not to copy the audio; needs an email from Anthony first.
+- **The library**: Modal volume `ai-sound-designer-library`: 12,116 recordings, 29 hours.
+  `catalog.jsonl` has one line per file with source, Freesound id, title, uploader,
+  licence, link, labels and measurements; `embeddings.npy` is the search index (CLAP).
+  Of 51,197 clips, 31,324 were not CC0, 6,585 were voice or music, 767 had titles
+  suggesting borrowed material, 405 were silent, too short or distorted.
+  Rebuild: `python scripts/modal_cmd.py run modal_library.py` (about 75 minutes, $1.50).
+- **How a sound is chosen**: `soundlib/library.py`. For every sound made on its own (key
+  moment, whoosh, detail, room background, and steady sources with
+  `sfx_sources: separate`), `Cloud.effects` asks the library first. The search
+  (`modal_library.py`, class `Search`) finds the closest recordings by sound, Claude
+  reads their titles and labels and picks one or says "generate" (about $0.007 per
+  sound). The recording is cut and placed like a generated clip (a moment starts on the
+  action, a whoosh peaks on it, a background is one even stretch), so snapping,
+  clean-up, mixing and editor clips are unchanged. Sounds that must follow the picture
+  beat by beat (footsteps) stay generated.
+- `library_judge`: `claude` (only the same thing making the same sound; on the vacuum
+  video nothing qualified) or `claude_sounds_alike` (foley-artist judgement; used a
+  body-fall thud for the nozzle landing, a cloth rip for the tuft snap, and a recorded
+  room tone).
+- Each job's `report.json` lists `library_recordings` (id, title, uploader, licence,
+  link) and every sound's `library` note (used or why not). Editor clips from the
+  library carry a `recording` field (not shown in the editor page yet).
+- Trial copy used for all tests: `ai-sound-designer-dev-library`
+  (`SOUND_APP=ai-sound-designer-dev`). The live name will be
+  `ai-sound-designer-library`; deploy it with `modal deploy modal_library.py` before
+  switching `sfx_library` on for the web app.
+- **Round 16** (`variants_library.json`, run `20261126-025902`): Current vs real
+  recordings that sound right vs the same for key moments only. Rating page (its own
+  page, not the Sound Tuning Room): https://claude.ai/artifact/MhXcXzrDbvwy38CcLTHNSc .
+  Full-size files: `/mnt/project-files/real_recordings/`. After Anthony rates: copy the
+  page's `ratings` rows into `ratings.csv`, then
+  `python tune.py --variants variants_library.json --apply`.
+- Known limits: the vacuum video has few everyday sounds, so it is a weak test; a video
+  with doors, footsteps or objects being put down would show more. Kenney's CC0 packs
+  are not in (no direct download link found).
+
+| 2026-11-25/26 | Library build (download, sort, index) | 2125 GPU + CPU | about $1.50 |
+| 2026-11-26 | Round 16: baseline and library versions of the vacuum video | 226 | $0.51 |
+
 ## Layered effects, pro mix, Stable Audio, edit insights (2026-11-25, round 14 waiting for ratings)
 
 Branch `claude/project-thread-1d0ddk` (contains the editor branch up to 7eded98). All new

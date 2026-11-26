@@ -76,6 +76,8 @@ Only start a phase when Anthony asks for it.
   the new defaults. `python make_sound.py video.mp4 --versions` makes three takes.
 - Second effects model: `modal_stable.py` (Stable Audio Open 1.0, setting `sfx_engine`),
   with the Modal secret `huggingface-secret` (key `HF_TOKEN`).
+- Real recordings library: `soundlib/library.py` + `modal_library.py` (setting
+  `sfx_library`; CC0 only, Modal volume `ai-sound-designer-library`). See PROGRESS.md.
 - Trial runs that must not touch the live apps: `SOUND_APP=ai-sound-designer-dev`.
 - What people change in the editor: `soundlib/insights.py`, page `/insights` (owner only).
 - Editor: `web/editor.html` + `soundlib/editor.py` + `soundlib/editor_api.py` (timeline

@@ -204,7 +204,7 @@
     "sfx_library": "off",
     "_library_kinds": "Which kinds of sound may come from the library: moment, whoosh, detail, ambience, source.",
     "library_kinds": ["moment", "whoosh", "detail", "ambience", "source"],
-    "_library_judge": "claude = Claude reads the titles, tags and descriptions of the closest recordings and picks one or says 'generate it'. score = the closest recording by sound is used if it is close enough.",
+    "_library_judge": "claude = Claude reads the titles, tags and descriptions of the closest recordings and picks one only when it is the same thing making the same sound, otherwise says 'generate it'. claude_sounds_alike = the same, but Claude judges like a foley artist: a recording is used when it would sound right, even if something else made it (a thud on carpet for a vacuum nozzle landing), so many more real recordings are used. score = the closest recording by sound is used if it is close enough.",
     "library_judge": "claude",
     "library_judge_model": "",
     "_library_min_score": "How close (0 to 1) a recording's sound must be to the description before it is even considered.",

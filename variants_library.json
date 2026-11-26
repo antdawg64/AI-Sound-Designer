@@ -6,19 +6,35 @@
   "variants": [
     {
       "id": "library",
-      "label": "Real recordings where they fit",
+      "label": "Real recordings, only exact matches",
       "setting": "sfx_library",
       "value": "on",
-      "why": "Key moments, their whoosh and detail layers and the room background are looked for in a library of public-domain real recordings first. Claude reads the closest recordings' labels and uses one only when it clearly fits; everything else is generated as before."
+      "why": "Each key moment and the room background is looked for in the library of real recordings first. Claude uses a recording only when it is the same thing making the same sound. On this video nothing in the library was an exact match, so every sound was still generated: this one should sound the same as Current."
     },
     {
-      "id": "library_moments",
-      "label": "Real recordings for key moments only",
+      "id": "library_alike",
+      "label": "Real recordings that sound right",
       "settings": {
         "sfx_library": "on",
-        "library_kinds": ["moment", "whoosh", "detail"]
+        "library_judge": "claude_sounds_alike",
+        "library_min_score": 0.2
       },
-      "why": "The same, but the steady background of the room stays generated, in case a recorded room tone stands out."
+      "why": "Claude chooses like a foley artist: a real recording is used when it would sound right, even if something else made it (a heavy thud on carpet for the vacuum nozzle landing). The sounds it cannot match are generated as before."
+    },
+    {
+      "id": "library_alike_moments",
+      "label": "Real recordings that sound right, key moments only",
+      "settings": {
+        "sfx_library": "on",
+        "library_judge": "claude_sounds_alike",
+        "library_min_score": 0.2,
+        "library_kinds": [
+          "moment",
+          "whoosh",
+          "detail"
+        ]
+      },
+      "why": "The same, but the steady background of the room stays generated."
     }
   ]
 }
