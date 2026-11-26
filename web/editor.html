@@ -1015,11 +1015,6 @@ function drawPanel() {
   add("Duplicate", "Make a copy of this sound (D)", () => duplicate(p.id));
   add(p.muted ? "Unmute" : "Mute", "Mute or unmute (M)", () => toggleMute(p.id), p.muted ? "on" : "");
   add("Remove", "Remove this sound (Delete)", () => removeClip(p.id), "danger");
-  if (Math.abs(moved) > 0.005 || p.gain_db || p.muted)
-    add("Put back", "Undo the move, volume and mute of this sound", () => {
-      p.start = +homeOf(p).toFixed(6); p.gain_db = 0; p.muted = false;
-      if (playing) schedulePiece(p); commit("clip_reset", { clip: p.id });
-    });
   panel.appendChild(row);
   const src = byId[p.src];
   if (src.made_as && src.made_as !== src.label) {
