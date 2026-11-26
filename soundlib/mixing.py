@@ -417,8 +417,30 @@ def effects_layers(segments: list[dict], spots: list[dict], shot_levels: list[di
     layers = [add_reverb(layer, room, float(C.SFX_REVERB)) for layer in layers]
     if ambience is not None:
         layers.append(ambience_layer(ambience, duration))
+    # One sound with a few very tall peaks (a sharp snap, a click) must not hold the whole
+    # track down: without this the peak limit below is reached long before the wanted
+    # loudness, and every other effect ends up far too quiet. So each layer's tallest
+    # peaks are eased down to what the wanted loudness leaves room for.
+    current = lufs(together())
+    if np.isfinite(current):
+        ceiling = 10 ** (-2.0 / 20) / 10 ** ((target_lufs - current) / 20)
+        layers = [tame_peaks(layer, ceiling) for layer in layers]
     gain = loudness_gain(together(), target_lufs)
     return [(layer * gain).astype(np.float32) for layer in layers]
+
+
+def tame_peaks(audio: np.ndarray, ceiling: float) -> np.ndarray:
+    """Ease down only the instants of `audio` that go over `ceiling`, smoothly (the gain
+    starts dropping a couple of milliseconds early), leaving the rest untouched."""
+    from scipy.ndimage import minimum_filter1d, uniform_filter1d
+
+    size = np.abs(audio).max(axis=1)
+    if not len(size) or float(size.max()) <= ceiling:
+        return audio
+    need = ceiling / np.maximum(size, ceiling)
+    half = int(0.002 * C.SAMPLE_RATE)
+    gain = uniform_filter1d(minimum_filter1d(need, size=4 * half + 1), size=2 * half + 1)
+    return (audio * gain[:, None]).astype(np.float32)
 
 
 REVERB_SECONDS = {"tiny enclosed space": 0.18, "small room": 0.32, "medium room": 0.5,

@@ -172,3 +172,24 @@ def test_layered_effects_are_separate_clips(tmp_path):
     assert kinds["amb"] == ("ambience", None)
     state = editor.clean_state(None, manifest)
     assert np.abs(editor.effects_track(tmp_path, manifest, state) - sum(layers)).max() < 2e-4
+
+
+def test_one_sharp_sound_does_not_quieten_the_rest():
+    """A layer with a few very tall peaks used to drag the whole effects track down."""
+    from soundlib import config as C, mixing
+    sr = C.SAMPLE_RATE
+    rng = np.random.default_rng(3)
+    steady = (0.05 * rng.standard_normal((6 * sr, 2))).astype(np.float32)
+    snaps = np.zeros((2 * sr, 2), dtype=np.float32)
+    burst = rng.standard_normal((int(0.03 * sr), 2)) * np.exp(-np.arange(int(0.03 * sr)) / (0.006 * sr))[:, None]
+    for at in (0.5, 0.9, 1.3):          # three sharp snaps over a quiet rustle
+        snaps[int(at * sr): int(at * sr) + len(burst)] = burst
+    snaps += (0.004 * rng.standard_normal(snaps.shape)).astype(np.float32)
+    segs = [{"index": 500, "separate": True, "source": "air", "prompt": "air", "loudness": "loud", "position": "center",
+             "start": 0.0, "end": 6.0, "clip_start": 0.0, "clip_end": 6.0, "audio": steady, "gain_db": 0.0}]
+    quiet = mixing.effects_layers(segs, [], None, "outdoors", 6.0, -30.0)
+    spot = {"index": 1000, "time": 3.0, "prompt": "snap", "gain_db": 0.0, "clip_start": 2.5, "clip_end": 4.5, "audio": snaps}
+    both = mixing.effects_layers(segs, [spot], None, "outdoors", 6.0, -30.0)
+    def level(x): return 10 * np.log10(np.mean(x[: 2 * sr] ** 2) + 1e-12)
+    assert abs(level(both[0]) - level(quiet[0])) < 3.0          # the steady sound keeps its level
+    assert np.abs(sum(both)).max() <= 10 ** (-1.4 / 20)
