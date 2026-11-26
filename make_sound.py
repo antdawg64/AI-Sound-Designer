@@ -117,13 +117,13 @@ class Cloud:
 
     def missed(self, frames: list[dict], windows: list[dict], duration: float, plan: dict) -> list[dict]:
         fn = self.modal.Function.from_name(APP_NAME, "plan_missed")
-        result = fn.remote(frames, windows, duration, plan)
+        result = fn.remote(frames, windows, duration, plan, planning.look_model(), int(C.SECOND_LOOK_MAX_EXTRA), C.LOOK_EFFORT or None)
         self._add_cost(result["usage"])
         return result["actions"]
 
     def pins(self, bursts: list[dict]) -> dict:
         fn = self.modal.Function.from_name(APP_NAME, "plan_pins")
-        result = fn.remote(bursts)
+        result = fn.remote(bursts, planning.look_model(), C.LOOK_EFFORT or None)
         self._add_cost(result["usage"])
         return result["pins"]
 
@@ -364,14 +364,15 @@ class Cached:
 
     def missed(self, frames, windows, duration, plan) -> list[dict]:
         jpegs = hashlib.sha256(b"".join(f["jpeg"] for f in frames)).hexdigest()
-        key = self._key("missed", jpegs, windows, plan["shots"], plan["moments"], C.PLAN_MODEL,
+        key = self._key("missed", jpegs, windows, plan["shots"], plan["moments"], planning.look_model(), *([C.LOOK_EFFORT] if C.LOOK_EFFORT else []),
                         C.SECOND_LOOK_MAX_EXTRA, hashlib.sha256(planning.LOOK_SYSTEM.encode()).hexdigest())
         return self._json(key, "missed", lambda: self.backend.missed(frames, windows, duration, plan))
 
     def pins(self, bursts) -> dict:
         jpegs = hashlib.sha256(b"".join(f["jpeg"] for b in bursts for f in b["frames"])).hexdigest()
         key = self._key("pins", jpegs, [(b["index"], b["description"], b["planned"]) for b in bursts],
-                        C.PLAN_MODEL, hashlib.sha256(planning.PIN_SYSTEM.encode()).hexdigest())
+                        planning.look_model(), *([C.LOOK_EFFORT] if C.LOOK_EFFORT else []),
+                        hashlib.sha256(planning.PIN_SYSTEM.encode()).hexdigest())
         pins = self._json(key, "pins", lambda: self.backend.pins(bursts))
         return {int(k): v for k, v in pins.items()}
 

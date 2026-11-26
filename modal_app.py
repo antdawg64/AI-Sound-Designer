@@ -140,19 +140,20 @@ def plan_cues(frames: list[dict], shots: list[dict], duration: float, plan: dict
 
 
 @app.function(image=plan_image, secrets=[modal.Secret.from_name(C.CLAUDE_SECRET_NAME)], timeout=900)
-def plan_missed(frames: list[dict], windows: list[dict], duration: float, plan: dict) -> dict:
+def plan_missed(frames: list[dict], windows: list[dict], duration: float, plan: dict,
+                model: str | None = None, most: int | None = None, effort: str | None = None) -> dict:
     """Claude's second, closer look: visible actions that have no sound yet."""
     from soundlib.planning import ask_missed
 
-    return ask_missed(frames, windows, duration, plan)
+    return ask_missed(frames, windows, duration, plan, model, most, effort)
 
 
 @app.function(image=plan_image, secrets=[modal.Secret.from_name(C.CLAUDE_SECRET_NAME)], timeout=900)
-def plan_pins(bursts: list[dict]) -> dict:
+def plan_pins(bursts: list[dict], model: str | None = None, effort: str | None = None) -> dict:
     """Claude picks the exact frame each key moment happens on."""
     from soundlib.planning import ask_pins
 
-    return ask_pins(bursts)
+    return ask_pins(bursts, model, effort)
 
 
 # --- One-time preparation (CPU, cheap) -------------------------------------------

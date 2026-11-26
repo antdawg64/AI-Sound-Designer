@@ -1,0 +1,20 @@
+{
+  "_about": "Round 19 (2026-11-26): Anthony chose 'Cut the cost first, then go live' for the second close look and frame-exact timing (round 18 winner, about 37 cents of Claude extra per video). Measured first without sound: smaller pictures keep Opus's frame choice within a frame or two; Sonnet is looser; Haiku is unreliable on timing; lower thinking effort finds fewer actions for little saving.",
+  "videos": [],
+  "vibes": {},
+  "include_takes": false,
+  "variants": [
+    {
+      "id": "cheaper_opus",
+      "label": "Cheaper: smaller pictures",
+      "settings": {"second_look_fps": 6, "second_look_long_side": 256, "moment_pin_long_side": 256, "moment_pin_window": 0.34},
+      "why": "Same Claude model, but it gets smaller pictures and slightly fewer of them. About 22 cents extra per video instead of 37."
+    },
+    {
+      "id": "cheaper_sonnet",
+      "label": "Cheapest: smaller pictures and a lighter Claude model",
+      "settings": {"look_model": "claude-sonnet-5-5", "second_look_fps": 6, "second_look_long_side": 256, "moment_pin_long_side": 256, "moment_pin_window": 0.34},
+      "why": "Smaller pictures, and the two looks are done by Claude Sonnet instead of Claude Opus. About 13 cents extra per video. In my measurements its frame choice was a little less exact."
+    }
+  ]
+}

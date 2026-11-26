@@ -569,10 +569,19 @@ def _planned_in(plan: dict, window: dict) -> list[str]:
     return lines or ["- nothing yet"]
 
 
-def _usage(responses: list) -> dict:
+def _effort(effort: str | None) -> dict:
+    return {"output_config": {"effort": effort}} if effort else {}
+
+
+def look_model() -> str:
+    return C.LOOK_MODEL or C.PLAN_MODEL
+
+
+def _usage(responses: list, model: str | None = None) -> dict:
     tokens_in = sum(r.usage.input_tokens for r in responses)
     tokens_out = sum(r.usage.output_tokens for r in responses)
-    cost = (tokens_in * C.CLAUDE_DOLLARS_PER_MTOK["input"] + tokens_out * C.CLAUDE_DOLLARS_PER_MTOK["output"]) / 1e6
+    price = C.CLAUDE_MODEL_DOLLARS_PER_MTOK.get(model or "", C.CLAUDE_DOLLARS_PER_MTOK)
+    cost = (tokens_in * price["input"] + tokens_out * price["output"]) / 1e6
     return {"input_tokens": tokens_in, "output_tokens": tokens_out, "dollars": round(cost, 4),
             "model": responses[0].model if responses else C.PLAN_MODEL, "requests": len(responses)}
 
@@ -582,14 +591,16 @@ def _image(jpeg: bytes) -> dict:
                                         "data": base64.standard_b64encode(jpeg).decode("ascii")}}
 
 
-def ask_missed(frames: list[dict], windows: list[dict], duration: float, plan: dict) -> dict:
+def ask_missed(frames: list[dict], windows: list[dict], duration: float, plan: dict,
+               model: str | None = None, most: int | None = None, effort: str | None = None) -> dict:
     """The second look. `frames` items: {time, jpeg}. Runs inside Modal, like ask_claude."""
     from concurrent.futures import ThreadPoolExecutor
 
     import anthropic
 
     client = anthropic.Anthropic()
-    limit = max(2, int(np.ceil(1.5 * int(C.SECOND_LOOK_MAX_EXTRA) / max(1, len(windows)))))
+    model = model or look_model()
+    limit = max(2, int(np.ceil(1.5 * int(most or C.SECOND_LOOK_MAX_EXTRA) / max(1, len(windows)))))
 
     def one(window: dict):
         shown = [f for f in frames if window["start"] - 1e-3 <= f["time"] < window["end"]][:90]
@@ -603,10 +614,10 @@ def ask_missed(frames: list[dict], windows: list[dict], duration: float, plan: d
             content.append({"type": "text", "text": f"{f['time']:.2f}s:"})
             content.append(_image(f["jpeg"]))
         content.append({"type": "text", "text": "List the actions here that still need a sound."})
-        return client.messages.parse(model=C.PLAN_MODEL, max_tokens=4000,
+        return client.messages.parse(model=model, max_tokens=4000,
                                      system=LOOK_SYSTEM.format(limit=limit),
                                      messages=[{"role": "user", "content": content}],
-                                     output_format=MissedActions)
+                                     output_format=MissedActions, **_effort(effort))
 
     with ThreadPoolExecutor(4) as pool:
         responses = [r for r in pool.map(one, windows) if r is not None]
@@ -614,7 +625,7 @@ def ask_missed(frames: list[dict], windows: list[dict], duration: float, plan: d
     for window, response in zip(windows, responses):
         if response.parsed_output is not None:
             actions += [a.model_dump() for a in response.parsed_output.actions]
-    return {"actions": actions, "usage": _usage(responses)}
+    return {"actions": actions, "usage": _usage(responses, model)}
 
 
 def add_missed(plan: dict, actions: list[dict], duration: float) -> list[dict]:
@@ -659,7 +670,7 @@ not there or you cannot tell), time (the timestamp of that frame, copied exactly
 the labels), and what_changes (a few words on what is different in that frame)."""
 
 
-def ask_pins(bursts: list[dict]) -> dict:
+def ask_pins(bursts: list[dict], model: str | None = None, effort: str | None = None) -> dict:
     """Frame-exact times. bursts: {index, description, planned, frames: [{time, jpeg}]}.
     Returns {"pins": {index: {time, visible, what_changes}}, "usage"}. Runs inside Modal."""
     from concurrent.futures import ThreadPoolExecutor
@@ -667,6 +678,7 @@ def ask_pins(bursts: list[dict]) -> dict:
     import anthropic
 
     client = anthropic.Anthropic()
+    model = model or look_model()
 
     def one(burst: dict):
         content: list[dict] = [{"type": "text", "text": (
@@ -677,9 +689,9 @@ def ask_pins(bursts: list[dict]) -> dict:
             content.append({"type": "text", "text": f"{f['time']:.3f}s:"})
             content.append(_image(f["jpeg"]))
         content.append({"type": "text", "text": "Which frame does this sound start on?"})
-        return client.messages.parse(model=C.PLAN_MODEL, max_tokens=2000, system=PIN_SYSTEM,
+        return client.messages.parse(model=model, max_tokens=2000, system=PIN_SYSTEM,
                                      messages=[{"role": "user", "content": content}],
-                                     output_format=PinnedFrame)
+                                     output_format=PinnedFrame, **_effort(effort))
 
     with ThreadPoolExecutor(4) as pool:
         responses = list(pool.map(one, bursts))
@@ -687,7 +699,7 @@ def ask_pins(bursts: list[dict]) -> dict:
     for burst, response in zip(bursts, responses):
         if response.parsed_output is not None:
             pins[burst["index"]] = response.parsed_output.model_dump()
-    return {"pins": pins, "usage": _usage(responses)}
+    return {"pins": pins, "usage": _usage(responses, model)}
 
 
 def apply_pins(plan: dict, pins: dict, bursts: list[dict]) -> list[dict]:
