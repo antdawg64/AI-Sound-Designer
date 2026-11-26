@@ -298,9 +298,14 @@ def clean_state(state: dict | None, manifest: dict) -> dict:
         "effects_muted": bool(state.get("effects_muted")),
         "music_muted": bool(state.get("music_muted")),
         "voice_db": round(_number(state.get("voice_db"), lo, hi, 0.0), 2) if manifest["has_voice"] else 0.0,
-        "voice_muted": bool(state.get("voice_muted")) and manifest["has_voice"],
+        "voice_muted": bool(state.get("voice_muted", _voice_off_at_first(manifest))) and manifest["has_voice"],
         "pieces": pieces,
     }
+
+
+def _voice_off_at_first(manifest: dict) -> bool:
+    """The video's own sound is on the timeline but switched off until the person turns it on."""
+    return bool((manifest.get("voice") or {}).get("off_at_first"))
 
 
 def _same(a: dict, b: dict) -> bool:
@@ -312,7 +317,8 @@ def _same(a: dict, b: dict) -> bool:
 def is_changed(state: dict, manifest: dict) -> bool:
     first = initial_pieces(manifest)
     return bool(state["effects_db"] or state["music_db"] or state["effects_muted"]
-                or state["music_muted"] or state["voice_db"] or state["voice_muted"]
+                or state["music_muted"] or state["voice_db"]
+                or state["voice_muted"] != (_voice_off_at_first(manifest) and manifest["has_voice"])
                 or len(first) != len(state["pieces"])
                 or not all(_same(a, b) for a, b in zip(first, state["pieces"])))
 
@@ -323,6 +329,9 @@ def load_state(out_dir: Path, manifest: dict) -> dict:
         saved = json.loads(path.read_text()) if path.exists() else {}
     except ValueError:
         saved = {}
+    voice = manifest.get("voice") or {}
+    if voice.get("off_at_first") and path.exists() and path.stat().st_mtime < voice.get("since", 0):
+        saved.pop("voice_muted", None)      # saved before this track existed: it starts switched off
     state = clean_state(saved, manifest)
     # A sound added in the editor whose page was closed before it arrived: put it on the
     # timeline now, where it was asked for.
@@ -441,6 +450,38 @@ def render(out_dir: Path, video: Path, state: dict) -> dict:
         return result
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+# --- The video's own sound, when both effects and music were made ------------------------
+
+def offer_original(out_dir: Path, video: Path) -> bool:
+    """When both effects and music were asked for, the video's own sound is replaced (only
+    talking is kept). So that it is never simply gone, it is put on the editor's timeline
+    as "Original audio", switched off: one press brings it back, at any volume. Done once
+    per job, the first time its editor is opened. Returns True if the track was added."""
+    from . import media
+
+    path = out_dir / MANIFEST
+    manifest = json.loads(path.read_text())
+    if manifest.get("has_voice") or manifest.get("original_checked"):
+        return False
+    manifest["original_checked"] = True
+    work = Path(tempfile.mkdtemp(prefix="original_"))
+    try:
+        if media.probe(video)["has_audio"]:
+            wav = media.extract_audio(video, work / "original.wav", manifest["duration"])
+            data, sr = read_audio(wav)
+            sound = to_stereo_48k(data, sr)
+            if mixing.lufs(sound) > C.CHECK_SILENT_LUFS:
+                _write_flac(out_dir / FOLDER / "voice.flac", mixing.set_loudness(sound, C.VOICE_LUFS))
+                manifest["has_voice"] = True
+                manifest["voice"] = {"file": "voice.flac", "kind": "original", "duck": False, "off_at_first": True,
+                                     "since": time.time(),
+                                     "label": "Original audio (switched off: press Muted to hear it)"}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    path.write_text(json.dumps(manifest, indent=2))
+    return bool(manifest["has_voice"])
 
 
 # --- Sounds added in the editor ---------------------------------------------------------

@@ -177,6 +177,13 @@ def attach(api, *, jobs: Path, get_job: Callable[[str], dict | None], refresh: C
     @api.get("/api/edit/{job_id}")
     def edit_info(job_id: str):
         job, out, manifest = editable(job_id, fresh=True)
+        if not manifest["has_voice"] and not manifest.get("original_checked"):
+            try:                     # the video's own sound, offered switched off (once per job)
+                editor.offer_original(out, video_of(job_id, job))
+                commit()
+                manifest = editor.load_manifest(out)
+            except Exception as exc:
+                print(f"original audio not offered for {job_id}: {exc}", flush=True)
         rendered = out / editor.EDITED / "render.json"
         try:
             from . import media

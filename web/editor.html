@@ -123,6 +123,9 @@
            font-size: 11px; font-weight: 600; color: var(--muted); padding: 5px 7px; white-space: nowrap; overflow: hidden;
            text-overflow: ellipsis; pointer-events: none; }
   .scene.now { background: var(--soft); color: var(--ink); border-color: var(--accent); }
+  .pickbox { position: absolute; border: 1.5px dashed var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+             border-radius: 4px; z-index: 6; pointer-events: none; }
+  #select-mode { display: none; height: 38px; }
   .pending { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--added); z-index: 5; pointer-events: none; }
   .pending::after { content: "Making…"; position: absolute; top: 64px; left: 5px; font-size: 11px; font-weight: 600; color: var(--added);
                     background: var(--added-soft); border-radius: 5px; padding: 2px 6px; white-space: nowrap; }
@@ -202,6 +205,7 @@
     #time { min-width: 0; font-size: 13px; }
     button { min-height: 38px; }
     .clip { min-height: 0; }
+    #select-mode { display: inline-flex; }
     .head .title button { min-height: 28px; }
   }
 </style>
@@ -244,6 +248,7 @@
   </span>
   <span id="time">0:00.00</span>
   <button id="add-sound" class="hidden" title="Describe a sound and have it made at the red line">＋ Add a sound</button>
+  <button id="select-mode" title="Tap several sounds to select them together">Select</button>
   <span class="hint">Drag along the top of the timeline to find the exact frame. Drag a sound to move it; click one for more.</span>
   <label class="zoom">Zoom <input type="range" id="zoom" min="1" max="8" step="0.1" value="1" aria-label="Zoom the timeline"></label>
 </div>
@@ -303,6 +308,8 @@ let byId = {};           // source id -> its entry in M.clips
 let buffers = {};        // source id / "music" / "voice" -> decoded sound
 let peaks = {};          // the same keys -> loudness outline for drawing
 let selected = null;     // a piece id, "music", or null
+let multi = new Set();   // the piece ids when several sounds are selected together (then `selected` is null)
+let selectMode = false;  // phones: a tap adds a sound to the selection
 let history = [], historyAt = 0;
 let events = [], renders = 0;
 let pps = 40, zoom = 1, zoomSet = false;  // pixels per second
@@ -504,7 +511,7 @@ function drawPlayhead() {
 const copyOf = x => JSON.parse(JSON.stringify(x));
 function freshState(saved) {
   const s = { effects_db: 0, music_db: 0, effects_muted: false, music_muted: false,
-              voice_db: 0, voice_muted: false, pieces: copyOf(FIRST) };
+              voice_db: 0, voice_muted: !!(M.voice && M.voice.off_at_first), pieces: copyOf(FIRST) };
   if (saved) {
     for (const k of ["effects_db", "music_db", "effects_muted", "music_muted", "voice_db", "voice_muted"]) if (k in saved) s[k] = saved[k];
     if (Array.isArray(saved.pieces)) s.pieces = copyOf(saved.pieces).filter(p => byId[p.src]);
@@ -529,6 +536,7 @@ function travel(step) {
 }
 function afterChange(rescheduleAll) {
   if (selected && selected !== "music" && (!piece(selected) || piece(selected).deleted)) selected = null;
+  if (multi.size) { const left = chosen().map(q => q.id); multi = new Set(left.length > 1 ? left : []); if (left.length === 1) selected = left[0]; }
   applyGains();
   if (rescheduleAll && playing) scheduleAll();
   drawClips(); drawHeads(); drawPanel(); drawRemoved();
@@ -669,11 +677,11 @@ function buildTimeline() {
     lane.addEventListener("pointerdown", e => {
       if (e.target !== lane) return;
       if (e.pointerType === "touch" && PHONE.matches) return;
-      select(null); scrub(e);
+      boxSelect(e);
     });
     lane.addEventListener("click", e => {
       if (e.target !== lane || !PHONE.matches) return;
-      if (selected) select(null);
+      if (selected || multi.size) select(null);
       seek((e.clientX - $("lanes").getBoundingClientRect().left) / pps);
     });
   }
@@ -744,7 +752,7 @@ function drawClips() {
     b.style.left = (p.start * pps) + "px";
     b.style.width = Math.max(6, lengthOf(p) * pps - 2) + "px";      // 2px so neighbours read as separate clips
     if (p.muted || S.effects_muted) b.classList.add("off");
-    if (selected === p.id) b.classList.add("selected");
+    if (selected === p.id || multi.has(p.id)) b.classList.add("selected");
     if (Math.abs(p.start - homeOf(p)) > 0.005) b.classList.add("moved");
     b.addEventListener("pointerdown", e => startDrag(e, p.id));
     laneOf[trackOf(p)].appendChild(b);
@@ -851,7 +859,7 @@ function drawAddPanel(panel) {
 }
 function openAdd() {
   if (playing) stopAll();
-  selected = null; addOpen = true; addNote = null;
+  selected = null; multi = new Set(); addOpen = true; addNote = null;
   drawClips(); drawPanel();
   const text = $("add-text"); if (text && window.matchMedia("(min-width: 821px)").matches) text.focus();
 }
@@ -965,6 +973,7 @@ async function placeAdded(item, clip, first) {
 
 function drawPanel() {
   const panel = $("panel"); panel.textContent = ""; splitShown = null;
+  if (multi.size > 1) return drawGroupPanel(panel);
   if (selected === "music") {
     panel.appendChild(el("span", "tag music", "Music"));
     panel.appendChild(el("h2", null, shortLabel(M.music.label || "Background music", 120)));
@@ -980,6 +989,7 @@ function drawPanel() {
       "<b>Find a frame:</b> drag along the top of the timeline and the picture follows. <kbd>,</kbd> and <kbd>.</kbd> step one frame.",
       "<b>Drag</b> a sound left or right to change when it happens.",
       "<b>Click</b> a sound to change its volume, mute it, remove it or <b>duplicate</b> it.",
+      "<b>Select several:</b> drag a box around them in the rows, or hold <kbd>Shift</kbd> and click each. Then move, mute or remove them together.",
       "<b>Split</b> a sound in two: put the red line where you want the cut, click the sound and press Split.",
       "Use the sliders on the left to balance <b>effects</b> against <b>music</b>.",
       "<kbd>Space</kbd> plays or pauses. With a sound selected, <kbd>←</kbd> <kbd>→</kbd> move it one frame, <kbd>S</kbd> splits, <kbd>D</kbd> duplicates.",
@@ -1061,7 +1071,53 @@ function drawRemoved() {
 }
 
 // ---------------------------------------------------------------- actions
-function select(id) { selected = id; if (id) addOpen = false; drawClips(); drawPanel(); }
+function select(id) { selected = id; multi = new Set(); if (id) addOpen = false; drawClips(); drawPanel(); }
+// Several sounds selected together: moved, muted, removed or turned up and down as one.
+const chosen = () => [...multi].map(piece).filter(q => q && !q.deleted);
+function setSelection(ids) {
+  ids = [...new Set(ids)].filter(i => piece(i) && !piece(i).deleted);
+  if (ids.length > 1) { multi = new Set(ids); selected = null; addOpen = false; }
+  else { multi = new Set(); selected = ids[0] || null; if (selected) addOpen = false; }
+  drawClips(); drawPanel();
+}
+function toggleSelect(id) {
+  const now = multi.size ? new Set(multi) : new Set(isClip(selected) ? [selected] : []);
+  if (now.has(id)) now.delete(id); else now.add(id);
+  setSelection([...now]);
+}
+function drawGroupPanel(panel) {
+  const list = chosen();
+  panel.appendChild(el("span", "tag background", "Several sounds"));
+  panel.appendChild(el("h2", null, list.length + " sounds selected"));
+  panel.appendChild(el("p", "muted", "Drag any one of them to move them all together. ← → move them one frame."));
+  const base = list.map(q => q.gain_db);
+  const f = el("div", "field");
+  f.appendChild(el("label", null, "Volume of all of them"));
+  const apply = v => list.forEach((q, i) => { q.gain_db = clamp(base[i] + v, -40, 12); });
+  f.appendChild(slider(0, v => { apply(v); applyGains(); }, v => { apply(v); commit("group_volume", { n: list.length, by: v }); }, "Change the volume of the selected sounds"));
+  panel.appendChild(f);
+  const row = el("div", "row");
+  const add = (text, fn, cls) => { const b = el("button", cls || "", text); b.addEventListener("click", fn); row.appendChild(b); };
+  const allMuted = list.every(q => q.muted);
+  add(allMuted ? "Unmute all" : "Mute all", () => { list.forEach(q => { q.muted = !allMuted; }); commit("group_mute", { n: list.length, to: !allMuted }); }, allMuted ? "on" : "");
+  add("Remove all", () => removeGroup(), "danger");
+  add("Clear selection", () => setSelection([]));
+  panel.appendChild(row);
+}
+function removeGroup() {
+  const list = chosen();
+  list.forEach(q => { q.deleted = true; stopSource(q.id); });
+  multi = new Set();
+  commit("group_delete", { n: list.length });
+}
+function nudgeGroup(by) {
+  const list = chosen();
+  const lo = Math.max(...list.map(q => moveLimits(q)[0] - q.start)), hi = Math.min(...list.map(q => moveLimits(q)[1] - q.start));
+  by = clamp(by, lo, hi);
+  if (!by) return;
+  list.forEach(q => { q.start = +(q.start + by).toFixed(4); if (playing) schedulePiece(q); });
+  commit("group_move", { n: list.length, by: +by.toFixed(3), how: "keys" });
+}
 function toggleMute(id) {
   const p = piece(id); p.muted = !p.muted;
   commit(p.muted ? "mute" : "unmute", { clip: id });
@@ -1109,6 +1165,9 @@ function duplicate(id) {
 function startDrag(ev, id) {
   if (ev.button) return;
   ev.preventDefault();
+  if (ev.shiftKey || ev.metaKey || ev.ctrlKey || selectMode) return toggleSelect(id);
+  if (multi.has(id)) return dragGroup(ev);
+  multi = new Set();
   const p = piece(id), from = p.start, x0 = ev.clientX, [lo, hi] = moveLimits(p);
   let moved = false, last = 0;
   if (selected !== id) { selected = id; addOpen = false; drawPanel(); $("lanes").querySelectorAll(".clip").forEach(n => n.classList.toggle("selected", n.dataset.id === id)); }
@@ -1133,6 +1192,51 @@ function startDrag(ev, id) {
     }
   };
   node.addEventListener("pointermove", onMove); node.addEventListener("pointerup", onUp); node.addEventListener("pointercancel", onUp);
+}
+function dragGroup(ev) {
+  const list = chosen(), from = list.map(q => q.start), x0 = ev.clientX;
+  const lo = Math.max(...list.map(q => moveLimits(q)[0] - q.start)), hi = Math.min(...list.map(q => moveLimits(q)[1] - q.start));
+  const nodes = list.map(q => $("lanes").querySelector('.clip[data-id="' + q.id + '"]'));
+  const node = ev.currentTarget; node.setPointerCapture(ev.pointerId);
+  let by = 0, moved = false, last = 0;
+  const onMove = m => {
+    const dx = m.clientX - x0;
+    if (!moved && Math.abs(dx) < 3) return;
+    moved = true; by = clamp(dx / pps, lo, hi);
+    list.forEach((q, i) => { q.start = +(from[i] + by).toFixed(4); if (nodes[i]) { nodes[i].style.left = (q.start * pps) + "px"; nodes[i].classList.add("dragging"); } });
+    if (playing && performance.now() - last > 200) { last = performance.now(); list.forEach(schedulePiece); }
+  };
+  const onUp = () => {
+    node.removeEventListener("pointermove", onMove); node.removeEventListener("pointerup", onUp); node.removeEventListener("pointercancel", onUp);
+    nodes.forEach(n => n && n.classList.remove("dragging"));
+    if (moved && by) { if (playing) list.forEach(schedulePiece); commit("group_move", { n: list.length, by: +by.toFixed(3), how: "drag" }); }
+  };
+  node.addEventListener("pointermove", onMove); node.addEventListener("pointerup", onUp); node.addEventListener("pointercancel", onUp);
+}
+// Drag in the empty part of the rows: a box that selects every sound it touches. A plain
+// click there clears the selection and puts the red line on that spot.
+function boxSelect(ev) {
+  const lanes = $("lanes"), x0 = ev.clientX, y0 = ev.clientY, target = ev.currentTarget, keep = ev.shiftKey ? [...multi, ...(isClip(selected) ? [selected] : [])] : [];
+  target.setPointerCapture(ev.pointerId);
+  let box = null;
+  const onMove = m => {
+    if (!box && Math.abs(m.clientX - x0) + Math.abs(m.clientY - y0) < 5) return;
+    const area = lanes.getBoundingClientRect();
+    if (!box) { box = el("div", "pickbox"); lanes.appendChild(box); }
+    box.style.left = (Math.min(x0, m.clientX) - area.left) + "px"; box.style.top = (Math.min(y0, m.clientY) - area.top) + "px";
+    box.style.width = Math.abs(m.clientX - x0) + "px"; box.style.height = Math.abs(m.clientY - y0) + "px";
+  };
+  const onUp = m => {
+    target.removeEventListener("pointermove", onMove); target.removeEventListener("pointerup", onUp); target.removeEventListener("pointercancel", onUp);
+    if (!box) { select(null); return seek((x0 - lanes.getBoundingClientRect().left) / pps); }
+    const r = box.getBoundingClientRect(); box.remove();
+    const hit = [...lanes.querySelectorAll(".clip")].filter(n => {
+      const c = n.getBoundingClientRect();
+      return isClip(n.dataset.id) && c.left < r.right && c.right > r.left && c.top < r.bottom && c.bottom > r.top;
+    }).map(n => n.dataset.id);
+    setSelection([...keep, ...hit]);
+  };
+  target.addEventListener("pointermove", onMove); target.addEventListener("pointerup", onUp); target.addEventListener("pointercancel", onUp);
 }
 function scrub(ev) {
   const lanes = $("lanes"), at = e => (e.clientX - lanes.getBoundingClientRect().left) / pps;
@@ -1168,6 +1272,12 @@ $("play").addEventListener("click", () => { if (playing) stopAll(); else play();
 $("prev-frame").addEventListener("click", () => stepFrame(-1));
 $("next-frame").addEventListener("click", () => stepFrame(1));
 $("add-sound").addEventListener("click", openAdd);
+$("select-mode").addEventListener("click", () => {
+  selectMode = !selectMode;
+  $("select-mode").classList.toggle("on", selectMode);
+  $("select-mode").textContent = selectMode ? "Selecting: tap sounds" : "Select";
+  if (!selectMode && multi.size < 2) setSelection([]);
+});
 $("undo").addEventListener("click", () => travel(-1));
 $("redo").addEventListener("click", () => travel(1));
 $("reset").addEventListener("click", () => {
@@ -1199,12 +1309,20 @@ document.addEventListener("keydown", e => {
   if (mod && key === "z") { e.preventDefault(); travel(e.shiftKey ? 1 : -1); return; }
   if (mod && key === "y") { e.preventDefault(); travel(1); return; }
   if (mod && key === "d" && clip) { e.preventDefault(); duplicate(clip); return; }
+  if (mod && key === "a" && !typing) { e.preventDefault(); setSelection(S.pieces.filter(q => !q.deleted).map(q => q.id)); return; }
   if (mod || e.altKey) return;
   if (tag === "textarea" || (typing && e.target.type !== "range")) return;      // writing a description
   if (e.key === " ") { e.preventDefault(); if (playing) stopAll(); else play(); return; }
   if (typing) return;
   if (e.key === "Home") { seek(0); return; }
   if (e.key === "Escape") { addOpen = false; select(null); return; }
+  if (multi.size > 1) {              // several sounds selected: the keys act on all of them
+    if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeGroup(); }
+    else if (key === "m") { const list = chosen(), to = !list.every(q => q.muted); list.forEach(q => { q.muted = to; }); commit("group_mute", { n: list.length, to }); }
+    else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); nudgeGroup((e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 5 : 1) / FPS); }
+    else if (e.key === "," || e.key === ".") stepFrame(e.key === "," ? -1 : 1);
+    return;
+  }
   if (e.key === "," || e.key === "." || e.key === "<" || e.key === ">") { stepFrame((e.key === "," || e.key === "<" ? -1 : 1) * (e.shiftKey ? 10 : 1)); return; }
   if (!clip && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); stepFrame((e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 10 : 1)); return; }
   if (!clip) return;

@@ -995,3 +995,25 @@ New defaults written to `settings.json`:
   is what stuttered on iPhone), sound plays with the ring switch on silent, drag the top
   strip to move the red line and drag the rows to scroll sideways.
 - Not tested on a real iPhone (only at phone size in a desktop browser).
+
+## Editor, later on Nov 26, 2026 (all live)
+
+- Several sounds can be made at once (up to 5); sounds still being made survive a reload
+  (`pending` in `GET /api/edit/<job>`; one status row per sound, `add:<job>:<id>`).
+- Time ruler and scene strip stay pinned while the rows scroll; zoom opens around the red line.
+- **Better descriptions**: before an added sound is made, Claude looks at four frames
+  around the chosen instant and rewrites the person's rough words into a precise
+  description (`planning.ask_added`, Modal function `describe_sound` in the web app; about
+  1 cent, 3 s). The clip keeps the person's words as its label and shows "Made as: ...".
+- **Remake**: under any key moment or added sound, "Not quite right? Make it again" with
+  Punchier, Softer, Longer, Shorter, More cartoony, More realistic, Deeper, Brighter, or
+  the person's own words. The new version is always generated (never the same library
+  recording), takes the old one's place, and the old one goes to Removed.
+  `POST /api/edit/<job>/add {refine, tweak}`. Limit `editor_add_max` is now 40.
+- **Original audio with both effects and music**: it used to be simply gone (by design
+  only talking is kept). Now `editor.offer_original` puts it on the timeline as
+  "Original audio", switched off, the first time the editor is opened (old videos too).
+- **Select several clips**: drag a box in the rows or Shift/Cmd-click (phones: Select
+  button), then drag, arrow keys, volume, mute or remove them together. Dragging in the
+  empty rows no longer moves the red line (the top strip does; a click still does).
+- The "Put back" button on clips was removed at Anthony's request.
