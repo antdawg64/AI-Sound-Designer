@@ -799,6 +799,7 @@ function drawClips() {
     if (selected === p.id || multi.has(p.id)) b.classList.add("selected");
     if (Math.abs(p.start - homeOf(p)) > 0.005) b.classList.add("moved");
     b.addEventListener("pointerdown", e => startDrag(e, p.id));
+    b.addEventListener("pointermove", e => { if (!e.buttons) b.style.cursor = edgeAt(b, e) ? "ew-resize" : ""; });
     laneOf[trackOf(p)].appendChild(b);
     drawWave(b.firstChild, p.src, cssColor(WAVE[look]), clamp(gainOf(p.gain_db + S.effects_db), 0.15, 1.6), p.in, p.out);
   }
@@ -1120,9 +1121,10 @@ function drawPanel() {
       "<b>Drag</b> a sound left or right to change when it happens.",
       "<b>Click</b> a sound to change its volume, mute it, remove it or <b>duplicate</b> it.",
       "<b>Select several:</b> drag a box around them in the rows, or hold <kbd>Shift</kbd> and click each. Then move, mute or remove them together.",
+      "<b>Trim</b> a sound: drag its left or right edge. Drag the edge back out to get the trimmed part back.",
       "<b>Split</b> a sound in two: put the red line where you want the cut, click the sound and press Split.",
       "Use the sliders on the left to balance <b>effects</b> against <b>music</b>.",
-      "<kbd>Space</kbd> plays or pauses. With a sound selected, <kbd>←</kbd> <kbd>→</kbd> move it one frame, <kbd>S</kbd> splits, <kbd>D</kbd> duplicates.",
+      "<kbd>Space</kbd> plays or pauses. With a sound selected, <kbd>←</kbd> <kbd>→</kbd> move it one frame, <kbd>S</kbd> splits, <kbd>D</kbd> duplicates. <kbd>+</kbd> and <kbd>−</kbd> zoom the timeline around the red line.",
       "When you're happy, press <b>Make my video</b>."]) { const li = el("li"); li.innerHTML = html; ul.appendChild(li); }
     panel.appendChild(ul);
     if (CAN_ADD) {
@@ -1274,12 +1276,57 @@ function duplicate(id) {
   selected = twin.id;
   commit("duplicate", { clip: id, made: twin.id, to: +twin.start.toFixed(3) });
 }
+// Which edge of a clip the pointer is on ("left", "right" or null): the edges trim it.
+function edgeAt(node, ev) {
+  const r = node.getBoundingClientRect(), zone = Math.min(ev.pointerType === "touch" ? 14 : 8, r.width / 3);
+  return ev.clientX - r.left <= zone ? "left" : r.right - ev.clientX <= zone ? "right" : null;
+}
+// Drag an edge to trim: the rest of the sound stays exactly where it is. Dragging the edge
+// back out brings the trimmed part back, up to the sound's full length.
+function startTrim(ev, p, side) {
+  const node = ev.currentTarget, x0 = ev.clientX, was = { in: p.in, out: p.out, start: p.start }, full = byId[p.src].duration;
+  node.setPointerCapture(ev.pointerId);
+  const label = node.querySelector(".label"), text = label.textContent;
+  let moved = false, last = 0;
+  const onMove = m => {
+    const d = (m.clientX - x0) / pps;
+    if (!moved && Math.abs(m.clientX - x0) < 2) return;
+    moved = true; node.classList.add("dragging");
+    if (side === "left") {
+      const by = clamp(d, Math.max(-was.in, -was.start), was.out - was.in - MIN_PIECE);
+      p.in = +(was.in + by).toFixed(6); p.start = +(was.start + by).toFixed(6);
+    } else {
+      p.out = +clamp(was.out + d, was.in + MIN_PIECE, Math.min(full, was.in + M.duration - was.start)).toFixed(6);
+    }
+    node.style.left = (p.start * pps) + "px";
+    node.style.width = Math.max(6, lengthOf(p) * pps - 2) + "px";
+    label.textContent = lengthOf(p).toFixed(2) + " s  " + text;
+    seekQuiet(side === "left" ? Math.max(0, p.start) : Math.min(M.duration, p.start + lengthOf(p)));
+    if (playing && performance.now() - last > 200) { last = performance.now(); schedulePiece(p); }
+  };
+  const onUp = () => {
+    node.removeEventListener("pointermove", onMove); node.removeEventListener("pointerup", onUp); node.removeEventListener("pointercancel", onUp);
+    node.classList.remove("dragging"); label.textContent = text;
+    if (moved && (p.in !== was.in || p.out !== was.out)) {
+      if (playing) schedulePiece(p);
+      commit("trim", { clip: p.id, side, from: +(side === "left" ? was.in : was.out).toFixed(3), to: +(side === "left" ? p.in : p.out).toFixed(3) });
+    }
+  };
+  node.addEventListener("pointermove", onMove); node.addEventListener("pointerup", onUp); node.addEventListener("pointercancel", onUp);
+}
+// While trimming, the picture follows the edge (when not playing) so the cut can be put on a frame.
+function seekQuiet(t) { if (!playing) seek(t); }
 function startDrag(ev, id) {
   if (ev.button) return;
   ev.preventDefault();
   if (ev.shiftKey || ev.metaKey || ev.ctrlKey || selectMode) return toggleSelect(id);
   if (multi.has(id)) return dragGroup(ev);
   multi = new Set();
+  const side = edgeAt(ev.currentTarget, ev);
+  if (side) {
+    if (selected !== id) { selected = id; addOpen = false; drawPanel(); $("lanes").classList.add("picking"); $("lanes").querySelectorAll(".clip").forEach(n => n.classList.toggle("selected", n.dataset.id === id)); }
+    return startTrim(ev, piece(id), side);
+  }
   const p = piece(id), from = p.start, x0 = ev.clientX, [lo, hi] = moveLimits(p);
   let moved = false, last = 0;
   if (selected !== id) { selected = id; addOpen = false; drawPanel(); $("lanes").querySelectorAll(".clip").forEach(n => n.classList.toggle("selected", n.dataset.id === id)); }
@@ -1427,6 +1474,8 @@ document.addEventListener("keydown", e => {
   if (e.key === " ") { e.preventDefault(); if (playing) stopAll(); else play(); return; }
   if (typing) return;
   if (e.key === "Home") { seek(0); return; }
+  if (e.key === "+" || e.key === "=") { zoomTo(zoom * 1.3); return; }
+  if (e.key === "-" || e.key === "_") { zoomTo(zoom / 1.3); return; }
   if (e.key === "Escape") { addOpen = false; select(null); return; }
   if (multi.size > 1) {              // several sounds selected: the keys act on all of them
     if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeGroup(); }
