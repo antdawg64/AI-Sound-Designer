@@ -1,12 +1,12 @@
 {
-  "_about": "Round 16 (2026-11-26): real recordings for common sounds (Anthony: 'yes on 6 too'). Current is the round 14 winner (layered effects, pro mix), every sound generated. Earlier rounds are in variants_round*.json and variants_layers.json. Round 17 (2026-11-26): Anthony asked to rebuild the whole thing from real recordings and generate only what the library lacks. Current is now the round 16 winner.",
+  "_about": "Round 16 (2026-11-26): real recordings for common sounds (Anthony: 'yes on 6 too'). Current is the round 14 winner (layered effects, pro mix), every sound generated. Earlier rounds are in variants_round*.json and variants_layers.json. Round 17 (2026-11-26): Anthony asked to rebuild the whole thing from real recordings and generate only what the library lacks. Current is now the round 16 winner. Round 17b (2026-11-26): Anthony found the real recordings too quiet for many effects and asked for several levels to choose from.",
   "videos": [],
   "vibes": {},
   "include_takes": false,
   "variants": [
     {
       "id": "library_first",
-      "label": "Everything from real recordings",
+      "label": "Real recordings, effects as before",
       "settings": {
         "sfx_library": "on",
         "library_judge": "claude_library_first",
@@ -14,7 +14,70 @@
         "library_candidates": 8,
         "sfx_sources": "separate"
       },
-      "why": "Every sound, the continuous ones too (vacuum motor, suction air, pattering feet), is looked for in the library first and made one at a time. A sound is generated only when the library has nothing that would sound right."
+      "why": "The version you just heard, unchanged, as the yardstick."
+    },
+    {
+      "id": "library_fx_plus4",
+      "label": "Real recordings, effects a little louder",
+      "settings": {
+        "sfx_library": "on",
+        "library_judge": "claude_library_first",
+        "library_min_score": 0.15,
+        "library_candidates": 8,
+        "sfx_sources": "separate",
+        "sfx_lufs_no_voice": -30
+      },
+      "why": "All effects 4 dB louder against the music."
+    },
+    {
+      "id": "library_fx_plus8",
+      "label": "Real recordings, effects louder",
+      "settings": {
+        "sfx_library": "on",
+        "library_judge": "claude_library_first",
+        "library_min_score": 0.15,
+        "library_candidates": 8,
+        "sfx_sources": "separate",
+        "sfx_lufs_no_voice": -26
+      },
+      "why": "All effects 8 dB louder against the music."
+    },
+    {
+      "id": "library_quiet_up",
+      "label": "Real recordings, the quiet effects brought up",
+      "settings": {
+        "sfx_library": "on",
+        "library_judge": "claude_library_first",
+        "library_min_score": 0.15,
+        "library_candidates": 8,
+        "sfx_sources": "separate",
+        "sfx_lufs_no_voice": -30,
+        "shot_level_db": {
+          "quiet": -4.0,
+          "medium": -2.0,
+          "loud": 0.0
+        }
+      },
+      "why": "The loudest sound (the vacuum motor) stays about where it was; the quieter ones (feet, carpet, wire, air) come up 3 to 6 dB so they are not lost behind it. All effects 4 dB louder against the music."
+    },
+    {
+      "id": "library_quiet_up_moments",
+      "label": "Real recordings, quiet effects up and key moments punchier",
+      "settings": {
+        "sfx_library": "on",
+        "library_judge": "claude_library_first",
+        "library_min_score": 0.15,
+        "library_candidates": 8,
+        "sfx_sources": "separate",
+        "sfx_lufs_no_voice": -30,
+        "spot_gain_db": -2,
+        "shot_level_db": {
+          "quiet": -4.0,
+          "medium": -2.0,
+          "loud": 0.0
+        }
+      },
+      "why": "Same as the one before, and the one-off moments (click, rip, thump, boom) 6 dB louder on top."
     }
   ]
 }
