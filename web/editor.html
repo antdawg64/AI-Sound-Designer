@@ -100,7 +100,7 @@
 
   /* Timeline */
   .timeline { display: flex; border-top: 1px solid var(--line); background: var(--card); flex: none;
-              max-height: 58vh; overflow-y: auto; }
+              max-height: 58vh; overflow-y: auto; align-items: flex-start; }
   .heads { width: 190px; flex: none; border-right: 1px solid var(--line); }
   .head { padding: 6px 10px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; justify-content: center; gap: 2px; overflow: hidden; }
   .head.ruler-head { border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
@@ -125,6 +125,9 @@
   .scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; position: relative; }
   .lanes { position: relative; min-width: 100%; }
   .ruler { position: relative; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; touch-action: pan-y; }
+  /* The time ruler, the scenes and the effects volume stay in view when the rows are scrolled (see pinTop). */
+  .ruler, .scenes { background: var(--card); z-index: 7; will-change: transform; }
+  .heads .head:first-child { position: relative; background: var(--card); z-index: 7; will-change: transform; }
   .tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); font-size: 11px; color: var(--muted); padding: 5px 0 0 4px; font-variant-numeric: tabular-nums; pointer-events: none; }
   .lane { position: relative; border-bottom: 1px solid var(--line); background: var(--lane); touch-action: pan-y; }
   .lane:nth-of-type(odd) { background: var(--lane-alt); }
@@ -146,7 +149,7 @@
   .clip.dragging { cursor: grabbing; opacity: .85; z-index: 5; }
   .clip.off { opacity: .4; background: repeating-linear-gradient(135deg, var(--cs) 0 6px, transparent 6px 12px); }
   .clip.moved::after { content: ""; position: absolute; right: 3px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
-  #playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--playhead); z-index: 6; pointer-events: none; }
+  #playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--playhead); z-index: 8; pointer-events: none; }
   #playhead::before { content: ""; position: absolute; top: 0; left: -5px; border: 6px solid transparent; border-top: 8px solid var(--playhead); }
 
   .removed { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 16px; font-size: 13px; border-top: 1px solid var(--line);
@@ -755,6 +758,7 @@ function slider(value, onInput, onDone, label) {
   return wrap;
 }
 function drawHeads() {
+  requestAnimationFrame(pinTop);
   const heads = $("heads"); heads.textContent = "";
   // Next to the time ruler and the scenes: the volume of all the sound effects together.
   const h = el("div", "head"); h.style.height = (ROW.ruler + ROW.scenes) + "px";
@@ -1058,6 +1062,21 @@ function scrub(ev) {
   target.addEventListener("pointermove", onMove); target.addEventListener("pointerup", onUp); target.addEventListener("pointercancel", onUp);
 }
 
+// Keep the time ruler and the scenes at the top of the timeline however far the rows are
+// scrolled: inside the timeline's own scrolling on a computer, under the video and the
+// play buttons on a phone (where the whole page scrolls).
+function pinTop() {
+  const lanes = $("lanes"), top = lanes.getBoundingClientRect().top;
+  const edge = PHONE.matches ? document.querySelector(".transport").getBoundingClientRect().bottom
+                             : document.querySelector(".timeline").getBoundingClientRect().top;
+  const by = clamp(edge - top, 0, Math.max(0, lanes.offsetHeight - ROW.ruler - ROW.scenes - 40));
+  const move = by ? "translateY(" + by + "px)" : "";
+  for (const node of [$("ruler"), $("scenes"), $("heads").firstElementChild]) if (node && node.style.transform !== move) node.style.transform = move;
+  const head = $("playhead"); head.style.top = by + "px";
+}
+document.querySelector(".timeline").addEventListener("scroll", pinTop, { passive: true });
+window.addEventListener("scroll", pinTop, { passive: true });
+window.addEventListener("resize", pinTop);
 $("ruler").addEventListener("pointerdown", scrub);
 $("scenes").addEventListener("pointerdown", scrub);
 $("play").addEventListener("click", () => { if (playing) stopAll(); else play(); });
