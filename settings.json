@@ -201,6 +201,9 @@
 
   "cost": {
     "gpu_type": "L40S",
+    "_run_parallel": "true = the music is composed while the effects are being made, and the effects are made side by side on up to sfx_parallel graphics computers. false = everything one after another, as before. The sound is the same either way; only the waiting changes. Each extra graphics computer costs a few cents per video (its start-up and the minute it stays ready afterwards).",
+    "run_parallel": true,
+    "sfx_parallel": 3,
     "gpu_dollars_per_second": {"L40S": 0.000542, "A100": 0.000583, "A100-80GB": 0.000694},
     "claude_dollars_per_mtok": {"input": 4.0, "output": 20.0},
     "_claude_model_dollars_per_mtok": "Prices for other Claude models, used when look_model names one.",

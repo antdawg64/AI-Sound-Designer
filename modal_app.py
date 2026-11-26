@@ -184,8 +184,9 @@ def prepare_music(model: str = C.MUSIC_MODEL) -> str:
 
 # --- Sound effects -------------------------------------------------------------
 
+# Up to SFX_PARALLEL of these run side by side, so one video's effects are made at once.
 @app.cls(image=foley_image, gpu=C.GPU_TYPE, volumes={WEIGHTS: weights}, timeout=1800,
-         scaledown_window=60, max_containers=1)
+         scaledown_window=60, max_containers=max(1, int(C.SFX_PARALLEL)))
 class Foley:
     @modal.enter()
     def load(self):

@@ -29,7 +29,9 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -49,11 +51,22 @@ def say(text: str) -> None:
     print(text, flush=True)
 
 
+# Work that runs ahead in the background (the music, while the effects are being made)
+# keeps its progress lines here, and they are shown when its step comes up, so the
+# progress people see still goes 1, 2, 3, 4, 5, 6.
+_held = threading.local()
+
+
+def _takes(seg: dict) -> int:
+    """How many takes are made of this sound, to keep the best one."""
+    return int(seg.get("takes") or C.FOLEY_CANDIDATES)
+
+
 # --- Cloud backend (Modal) -----------------------------------------------------
 
 def _judge(seg: dict) -> dict | None:
     """How the best of several takes is picked for this sound (TAKE_JUDGE strict)."""
-    if C.TAKE_JUDGE != "strict" or int(C.FOLEY_CANDIDATES) <= 1:
+    if C.TAKE_JUDGE != "strict" or _takes(seg) <= 1:
         return None
     onset = seg["time"] - seg["clip_start"] if "time" in seg and seg.get("role", "main") == "main" else None
     return {"reject": list(C.TAKE_REJECT), "onset": onset}
@@ -70,6 +83,7 @@ class Cloud:
         self.gpu_calls: list[dict] = []
         self.api_calls: list[dict] = []   # paid calls to outside services (Google Lyria)
         self.claude: dict = {}
+        self._lock = threading.Lock()    # several calls can be under way at once
 
     def deploy(self) -> None:
         import modal_app
@@ -113,7 +127,8 @@ class Cloud:
         return result["plan"]
 
     def _add_cost(self, usage: dict) -> None:
-        self.claude = {**usage, "dollars": round(usage["dollars"] + self.claude.get("dollars", 0.0), 4)}
+        with self._lock:
+            self.claude = {**usage, "dollars": round(usage["dollars"] + self.claude.get("dollars", 0.0), 4)}
 
     def missed(self, frames: list[dict], windows: list[dict], duration: float, plan: dict) -> list[dict]:
         fn = self.modal.Function.from_name(APP_NAME, "plan_missed")
@@ -140,8 +155,7 @@ class Cloud:
                    for f in frames]
         fn = self.modal.Function.from_name(APP_NAME, "plan_cues")
         result = fn.remote(payload, shots, duration, plan)
-        self.claude = {**result["usage"],
-                       "dollars": round(result["usage"]["dollars"] + self.claude.get("dollars", 0.0), 4)}
+        self._add_cost(result["usage"])
         return result["cues"]
 
     def _collect(self, stream, what: str) -> tuple[np.ndarray, int]:
@@ -171,7 +185,7 @@ class Cloud:
             self.foley.generate.remote_gen(
                 clip.read_bytes(), prompt, seed=C.SEED + seg["index"], steps=C.FOLEY_STEPS,
                 guidance=C.FOLEY_GUIDANCE, neg_prompt=C.FOLEY_NEG_PROMPT,
-                candidates=int(C.FOLEY_CANDIDATES), judge=_judge(seg)),
+                candidates=_takes(seg), judge=_judge(seg)),
             f"effects segment {seg['index']}")
 
     def effects_text(self, asks: list[dict]) -> list[tuple[np.ndarray, int]]:
@@ -384,7 +398,7 @@ class Cached:
         key = self._key("fx", hashlib.sha256(clip.read_bytes()).hexdigest(), prompt,
                         C.SEED + seg["index"], C.FOLEY_STEPS, C.FOLEY_GUIDANCE,
                         C.FOLEY_NEG_PROMPT, C.FOLEY_MODEL_SIZE,
-                        *([f"best of {int(C.FOLEY_CANDIDATES)}"] if int(C.FOLEY_CANDIDATES) > 1 else []),
+                        *([f"best of {_takes(seg)}"] if _takes(seg) > 1 else []),
                         *([_judge(seg)] if _judge(seg) else []), *library.cache_tag(seg))
         # Which real recording was used (or why none) is kept next to the saved sound.
         note = self.folder / f"{key}.library.json"
@@ -591,6 +605,14 @@ def _make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
     The part that is left out is written as a silent file, so every output always exists."""
     if parts not in PARTS:
         raise ValueError(f"parts must be one of {PARTS}, not {parts!r}")
+    global say
+    outer = say
+
+    def routed(text: str) -> None:      # lines from background work wait for their step
+        held = getattr(_held, "lines", None)
+        held.append(text) if held is not None else outer(text)
+
+    say = routed
     started = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="make_sound_"))
@@ -630,14 +652,23 @@ def _make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
 
         say("2/6 Planning the sound with Claude")
         backend.connect()
+        second_look = C.PLAN_SECOND_LOOK and C.PLAN_DETAIL == "close" and parts != "music"
+        dense_job = None
+        if second_look and C.RUN_PARALLEL:    # read from the video while Claude makes the plan
+            step = 1.0 / float(C.SECOND_LOOK_FPS)
+            early = ThreadPoolExecutor(1, thread_name_prefix="frames")
+            dense_job = early.submit(media.frames_at, video, list(np.arange(step / 2, duration, step)),
+                                     int(C.SECOND_LOOK_LONG_SIDE))
+            early.shutdown(wait=False)
         frames = media.extract_keyframes(video, shots, work / "frames")
         plan = planning.clean_plan(backend.plan(frames, shots, duration, speech, vibe), shots, duration)
         say(f"    {plan['summary']}")
         closer = {}
-        if C.PLAN_SECOND_LOOK and C.PLAN_DETAIL == "close" and parts != "music":
+        if second_look:
             say("    Looking again, closely, for actions with no sound yet")
             step = 1.0 / float(C.SECOND_LOOK_FPS)
-            dense = media.frames_at(video, list(np.arange(step / 2, duration, step)), int(C.SECOND_LOOK_LONG_SIDE))
+            dense = dense_job.result() if dense_job else media.frames_at(
+                video, list(np.arange(step / 2, duration, step)), int(C.SECOND_LOOK_LONG_SIDE))
             found = planning.add_missed(plan, backend.missed(
                 dense, planning.look_windows(shots, duration), duration, plan), duration)
             for m in found:
@@ -656,18 +687,108 @@ def _make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                 say(f"      {m['planned']:.2f}s -> {m['frame']:.3f}s: {m['description']} ({m['what_changes']})")
             closer["frame_timing"] = {"moments": len(bursts), "pinned": moved}
 
+        # The music does not depend on the effects, so with RUN_PARALLEL it is composed while
+        # the effects are being made. Its progress lines are held back until step 4.
+        def compose_music():
+            music_plan = plan["music"]
+            bpm, miss = planning.pick_tempo(music_plan["tempo_bpm"], music_plan["cut_times"])
+            caption = planning.music_caption(music_plan, music_flavour)
+            say(f"    {caption} at {bpm} BPM")
+            cues = None
+            if C.MUSIC_SCORING != "single" and parts != "effects":
+                cues = planning.clean_cues(backend.cues(frames, shots, duration, plan), shots, duration)
+                cues["sections"] = planning.settle_sections(cues["sections"], bpm, duration)
+                for sec in cues["sections"]:
+                    say(f"    {sec['start']:.1f}-{sec['end']:.1f}s, intensity {sec['intensity']}: {sec['description']}")
+                for hit in cues["hits"]:
+                    say(f"    {hit['strength']} hit at {hit['time']:.1f}s: {hit['what']}")
+            if parts == "effects":
+                music = silence
+            elif C.MUSIC_PROVIDER == "lyria" and (lyria_take := _try_lyria(backend, caption, bpm, cues, duration)):
+                music = mixing.shape_music(*lyria_take, duration)
+            elif cues and C.MUSIC_SCORING == "sections":
+                pieces = []
+                for sec in cues["sections"]:
+                    length = sec["end"] - sec["start"]
+                    part_caption = planning.section_caption(music_plan, music_flavour, sec)
+                    raw, sr = backend.compose(part_caption, bpm,
+                                              max(C.MUSIC_MIN_SECONDS, float(np.ceil(length)) + 9.0),
+                                              cues["key"])
+                    pieces.append(media.to_stereo_48k(raw, sr))
+                music = mixing.join_sections(pieces, cues["sections"], duration, bpm)
+                music = mixing.shape_music(music, C.SAMPLE_RATE, duration)
+            elif cues and C.MUSIC_SCORING == "repaint":
+                keep, last = float(C.REPAINT_KEEP_SECONDS), len(cues["sections"]) - 1
+                pieces = []
+                for i, sec in enumerate(cues["sections"]):
+                    a = sec["start"] + (keep if i > 0 else 0.0)
+                    b = sec["end"] - (keep if i < last else 0.0)
+                    if b - a >= 1.0:   # too short to rewrite once the joins are kept: leave as composed
+                        pieces.append({"start": round(a, 3), "end": round(b, 3),
+                                      "caption": planning.section_caption(music_plan, music_flavour, sec)})
+                raw, sr = backend.compose_scored(
+                    caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1), cues["key"], pieces)
+                music = mixing.shape_music(raw, sr, duration)
+            else:
+                raw, sr = backend.compose(caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1))
+                music = mixing.shape_music(raw, sr, duration)
+            if cues:
+                music = mixing.shape_to_cues(music, cues)
+            if parts != "effects":
+                music = mixing.set_loudness(music, under_original or (C.MUSIC_LUFS if voice_wav else C.MUSIC_LUFS_NO_VOICE))
+            return music, cues, caption, bpm, miss, music_plan
+
+        def music_ahead():
+            _held.lines = []
+            try:
+                return compose_music(), _held.lines
+            finally:
+                _held.lines = None
+
+        ahead = None
+        if C.RUN_PARALLEL and parts != "effects":
+            ahead = ThreadPoolExecutor(1, thread_name_prefix="music")
+            ahead_job = ahead.submit(music_ahead)
+
         say("3/6 Generating sound effects" if parts != "music" else "3/6 Skipping sound effects (music only)")
         from_text = C.SFX_ENGINE == "stable_audio" and parts != "music"
+        # Every sound to make is first put on a list, then made side by side on up to
+        # SFX_PARALLEL graphics computers. Sounds in the same group are made one after
+        # another (stretches of one sound source share the recording chosen for the first).
+        waiting: list[tuple] = []
+
+        def queue(target: dict, clip, prompt: str, group=None, then=None) -> None:
+            """clip: a function that cuts this sound's piece of the video (run by the worker)."""
+            waiting.append((target, clip, prompt, group, then))
+
+        def make_waiting() -> None:
+            def one(batch: list[tuple]) -> None:
+                for target, clip, prompt, _, _ in batch:
+                    audio, sr = backend.effects(clip(), prompt, target)
+                    target["audio"] = media.to_stereo_48k(audio, sr)
+
+            batches: dict = {}
+            for n, item in enumerate(waiting):
+                batches.setdefault(item[3] if item[3] is not None else n, []).append(item)
+            workers = max(1, int(C.SFX_PARALLEL)) if C.RUN_PARALLEL else 1
+            if workers == 1 or len(batches) < 2:
+                for batch in batches.values():
+                    one(batch)
+            else:
+                with ThreadPoolExecutor(workers, thread_name_prefix="effects") as pool:
+                    list(pool.map(one, batches.values()))
+            for _, _, _, _, then in waiting:    # in the order they were asked for
+                if then:
+                    then()
         apart = C.SFX_SOURCES == "separate" and parts != "music" and not from_text
         segments = media.plan_segments(shots, duration) if parts != "music" and not from_text and not apart else []
         if apart:   # one sound at a time: each source made alone, from where it is heard
             segments = planning.source_spans(plan, duration)
             for seg in segments:
                 seg["separate"], seg["gain_db"] = True, 0.0
-                clip = media.cut_clip(video, seg, work / f"source{seg['index']:03d}.mp4")
+                clip = lambda seg=seg: media.cut_clip(video, seg, work / f"source{seg['index']:03d}.mp4")
                 say(f"    {seg['start']:.1f}-{seg['end']:.1f}s {seg['source']}: {seg['prompt']}")
-                audio, sr = backend.effects(clip, seg["prompt"], seg)
-                seg["audio"] = media.to_stereo_48k(audio, sr)
+                queue(seg, clip, seg["prompt"], group=("source", seg["source"]) if seg.get("source") else None)
         spots = []
         layered = C.SFX_LAYERING == "layered"
         text_ambience = None
@@ -675,10 +796,9 @@ def _make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             segments, spots, text_ambience = text_effects(plan, duration, backend, layered)
         for seg in segments if not from_text and not apart else []:
             seg["prompt"], seg["gain_db"] = planning.segment_prompt(plan, seg)
-            clip = media.cut_clip(video, seg, work / f"clip{seg['index']:03d}.mp4")
+            clip = lambda seg=seg: media.cut_clip(video, seg, work / f"clip{seg['index']:03d}.mp4")
             say(f"    {seg['start']:.1f}-{seg['end']:.1f}s: {seg['prompt']}")
-            audio, sr = backend.effects(clip, seg["prompt"], seg)
-            seg["audio"] = media.to_stereo_48k(audio, sr)
+            queue(seg, clip, seg["prompt"])
         if C.PLAN_DETAIL == "close" and parts != "music" and not from_text:
             for i, m in enumerate(plan["moments"]):
                 spot = {"index": 1000 + i, "time": m["time"], "prompt": m["description"],
@@ -687,17 +807,13 @@ def _make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                         "clip_end": round(min(duration, m["time"] + C.SPOT_AFTER_SECONDS), 3)}
                 if spot["clip_end"] - spot["clip_start"] < 0.6:
                     continue
-                clip = media.cut_clip(video, spot, work / f"spot{i:03d}.mp4")
+                clip = lambda spot=spot, i=i: media.cut_clip(video, spot, work / f"spot{i:03d}.mp4")
                 say(f"    moment at {m['time']:.1f}s: {m['description']}")
-                usual = C.FOLEY_CANDIDATES
-                C.override({"foley_candidates": max(int(usual), int(C.SPOT_CANDIDATES))})
-                try:
-                    audio, sr = backend.effects(clip, spot["prompt"], spot)
-                finally:
-                    C.override({"foley_candidates": usual})
-                spot["audio"] = media.to_stereo_48k(audio, sr)
-                if m.get("pinned") or C.MOMENT_SNAP:
-                    _snap(video, spot, duration, pinned=bool(m.get("pinned")))
+                spot["takes"] = max(int(C.FOLEY_CANDIDATES), int(C.SPOT_CANDIDATES))
+                snap = m.get("pinned") or C.MOMENT_SNAP
+                queue(spot, clip, spot["prompt"], then=(
+                    lambda spot=spot, pinned=bool(m.get("pinned")): _snap(video, spot, duration, pinned=pinned))
+                    if snap else None)
                 spots.append(spot)
                 # Film-style layering: the supporting sounds of this moment, each made
                 # on its own so it is its own clip (a whoosh leading in, a detail after).
@@ -711,10 +827,9 @@ def _make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                              "clip_end": round(min(duration, m["time"] + after), 3)}
                     if extra["clip_end"] - extra["clip_start"] < 0.8:
                         continue
-                    clip = media.cut_clip(video, extra, work / f"spot{i:03d}_{j}.mp4")
+                    clip = lambda extra=extra, i=i, j=j: media.cut_clip(video, extra, work / f"spot{i:03d}_{j}.mp4")
                     say(f"      {layer['role']}: {layer['description']}")
-                    audio, sr = backend.effects(clip, extra["prompt"], extra)
-                    extra["audio"] = media.to_stereo_48k(audio, sr)
+                    queue(extra, clip, extra["prompt"])
                     spots.append(extra)
         # The steady background of the place, one stretch made from a held frame of the
         # longest shot (nothing moves, so nothing happens in it) and run under everything.
@@ -723,11 +838,11 @@ def _make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             longest = max(shots, key=lambda s: s["end"] - s["start"])
             ambience = {"index": 3000, "ambience": True, "prompt": plan["ambience"],
                         "clip_start": 0.0, "clip_end": float(C.AMBIENCE_SECONDS)}
-            clip = media.still_clip(video, (longest["start"] + longest["end"]) / 2,
-                                    float(C.AMBIENCE_SECONDS), work / "ambience.mp4")
+            clip = lambda: media.still_clip(video, (longest["start"] + longest["end"]) / 2,
+                                            float(C.AMBIENCE_SECONDS), work / "ambience.mp4")
             say(f"    background of the place: {plan['ambience']}")
-            audio, sr = backend.effects(clip, ambience["prompt"], ambience)
-            ambience["audio"] = media.to_stereo_48k(audio, sr)
+            queue(ambience, clip, ambience["prompt"])
+        make_waiting()
         # Every effect is kept as its own layer (they add up to the effects track), so
         # the editor can move, mute or remove one effect afterwards.
         layers, sfx = [], silence
@@ -747,52 +862,15 @@ def _make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
                 sfx += layer
 
         say("4/6 Composing the music" if parts != "effects" else "4/6 Skipping the music (effects only)")
-        music_plan = plan["music"]
-        bpm, miss = planning.pick_tempo(music_plan["tempo_bpm"], music_plan["cut_times"])
-        caption = planning.music_caption(music_plan, music_flavour)
-        say(f"    {caption} at {bpm} BPM")
-        cues = None
-        if C.MUSIC_SCORING != "single" and parts != "effects":
-            cues = planning.clean_cues(backend.cues(frames, shots, duration, plan), shots, duration)
-            cues["sections"] = planning.settle_sections(cues["sections"], bpm, duration)
-            for sec in cues["sections"]:
-                say(f"    {sec['start']:.1f}-{sec['end']:.1f}s, intensity {sec['intensity']}: {sec['description']}")
-            for hit in cues["hits"]:
-                say(f"    {hit['strength']} hit at {hit['time']:.1f}s: {hit['what']}")
-        if parts == "effects":
-            music = silence
-        elif C.MUSIC_PROVIDER == "lyria" and (lyria_take := _try_lyria(backend, caption, bpm, cues, duration)):
-            music = mixing.shape_music(*lyria_take, duration)
-        elif cues and C.MUSIC_SCORING == "sections":
-            pieces = []
-            for sec in cues["sections"]:
-                length = sec["end"] - sec["start"]
-                part_caption = planning.section_caption(music_plan, music_flavour, sec)
-                raw, sr = backend.compose(part_caption, bpm,
-                                          max(C.MUSIC_MIN_SECONDS, float(np.ceil(length)) + 9.0),
-                                          cues["key"])
-                pieces.append(media.to_stereo_48k(raw, sr))
-            music = mixing.join_sections(pieces, cues["sections"], duration, bpm)
-            music = mixing.shape_music(music, C.SAMPLE_RATE, duration)
-        elif cues and C.MUSIC_SCORING == "repaint":
-            keep, last = float(C.REPAINT_KEEP_SECONDS), len(cues["sections"]) - 1
-            pieces = []
-            for i, sec in enumerate(cues["sections"]):
-                a = sec["start"] + (keep if i > 0 else 0.0)
-                b = sec["end"] - (keep if i < last else 0.0)
-                if b - a >= 1.0:   # too short to rewrite once the joins are kept: leave as composed
-                    pieces.append({"start": round(a, 3), "end": round(b, 3),
-                                  "caption": planning.section_caption(music_plan, music_flavour, sec)})
-            raw, sr = backend.compose_scored(
-                caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1), cues["key"], pieces)
-            music = mixing.shape_music(raw, sr, duration)
+        if ahead is not None:
+            try:
+                (music, cues, caption, bpm, miss, music_plan), lines = ahead_job.result()
+            finally:
+                ahead.shutdown(wait=False)
+            for line in lines:
+                say(line)
         else:
-            raw, sr = backend.compose(caption, bpm, max(C.MUSIC_MIN_SECONDS, float(np.ceil(duration)) + 1))
-            music = mixing.shape_music(raw, sr, duration)
-        if cues:
-            music = mixing.shape_to_cues(music, cues)
-        if parts != "effects":
-            music = mixing.set_loudness(music, under_original or (C.MUSIC_LUFS if voice_wav else C.MUSIC_LUFS_NO_VOICE))
+            music, cues, caption, bpm, miss, music_plan = compose_music()
 
         say("5/6 Mixing")
         mixing.save_stem(out_dir / "sfx.wav", sfx)
@@ -848,6 +926,7 @@ def _make_sound(video: Path, out_dir: Path, backend, keep_work: bool = False,
             f"cost ${report['cost']['total_dollars']:.3f}. Files are in {out_dir}/")
         return report
     finally:
+        say = outer
         backend.gpu_calls = []
         backend.api_calls = []
         if keep_work:

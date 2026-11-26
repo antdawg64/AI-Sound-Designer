@@ -81,19 +81,21 @@ def extract_keyframes(path: str | Path, shots: list[dict], out_dir: Path) -> lis
     long_side = C.CLOSE_FRAME_LONG_SIDE if close else C.FRAME_LONG_SIDE
     while per_shot > 1 and per_shot * len(shots) > max_frames:
         per_shot -= 1
-    frames = []
+    frames, asks = [], []
+    scale = f"scale='if(gt(iw,ih),{long_side},-2)':'if(gt(iw,ih),-2,{long_side})'"
     for shot in shots[:max_frames]:
         length = shot["end"] - shot["start"]
         positions = [0.5] if per_shot == 1 else np.linspace(0.08 if close else 0.12, 0.92 if close else 0.88, per_shot)
         for k, pos in enumerate(positions):
             t = shot["start"] + float(pos) * length
             out = out_dir / f"shot{shot['index']:03d}_{k}.jpg"
-            scale = (
-                f"scale='if(gt(iw,ih),{long_side},-2)':'if(gt(iw,ih),-2,{long_side})'"
-            )
-            run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.3f}", "-i", path, "-frames:v", "1",
-                 "-vf", scale, "-q:v", "5", out])
+            asks.append(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.3f}", "-i", path, "-frames:v", "1",
+                         "-vf", scale, "-q:v", "5", out])
             frames.append({"shot": shot["index"], "time": round(t, 2), "path": str(out)})
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(4) as pool:     # each is its own ffmpeg; side by side saves the wait
+        list(pool.map(run, asks))
     return frames
 
 

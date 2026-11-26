@@ -229,7 +229,7 @@ def web():
     async def own_videos_only(request: Request, call_next):
         parts = request.url.path.split("/")
         if len(parts) >= 4 and parts[1] == "api" and parts[2] in ("job", "edit"):
-            maker = (job_status.get(parts[3]) or {}).get("owner")
+            maker = (await job_status.get.aio(parts[3]) or {}).get("owner")
             if maker and maker != account_of(request) and not is_site_owner(request):
                 return JSONResponse({"detail": "That video wasn't found."}, status_code=404)
         return await call_next(request)

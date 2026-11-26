@@ -930,3 +930,18 @@ New defaults written to `settings.json`:
   addresses). Videos made before this have no owner: they are in nobody's list and stay
   open to any signed-in person who has the link, until they are deleted after 7 days.
 
+## Faster videos: steps side by side (Nov 26, 2026; built, NOT live yet)
+
+- Setting `run_parallel` (true): the music is composed while the effects are made, every
+  effect (and its library search and clip cutting) is made side by side on up to
+  `sfx_parallel` (3) graphics computers, the key frames are cut four at a time, and the
+  close-look frames are read while Claude makes the plan. `false` = one after another.
+- Same sound either way: with test tones the effects and music files are identical.
+- Measured on the 28 s reference video, real models, trial apps `ai-sound-designer-fast`:
+  7 min 27 s before, 2 min 47 s after. Cost about the same on the report ($0.70 / $0.67),
+  but two more graphics computers start up and stay ready for a minute, which Modal
+  bills (roughly 5 to 9 cents a video that the report does not count).
+- Going live needs the model app redeployed too (`Foley` now allows 3 containers).
+- Ideas not done: wake the graphics computers while Claude plans (saves about 40 s more),
+  let the recordings search answer several asks at once (`modal_library.py`).
+
