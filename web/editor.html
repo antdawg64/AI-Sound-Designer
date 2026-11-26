@@ -904,6 +904,7 @@ async function placeAdded(item, clip, first) {
     peaks[clip.id] = computePeaks(buffers[clip.id]);
   } catch (err) { return addFailed(item, "it was made but didn't load. Reload this page to see it."); }
   pendingAdds = pendingAdds.filter(x => x !== item);
+  if (byId[clip.id]) { drawPending(); return redrawKeepingTyping(); }      // already on the timeline
   M.clips.push(clip); byId[clip.id] = clip; FIRST.push(first);
   S.pieces.push(copyOf(first));
   // It is part of the video from now on, so every earlier step of Undo gets it too.
@@ -1222,6 +1223,12 @@ async function start() {
     }));
   } catch (err) { return fail("Can't open the editor", "One of the sounds didn't load. Please reload this page."); }
 
+  // Sounds that were still being made when this page was opened or reloaded carry on.
+  for (const a of info.pending || []) {
+    const item = { prompt: a.prompt, at: a.time, id: a.id };
+    pendingAdds.push(item); setTimeout(() => checkAdded(item), 1500);
+  }
+  if (pendingAdds.length && CAN_ADD) addOpen = true;
   buildTimeline(); drawHeads(); drawPanel(); drawRemoved(); applyGains();
   $("reset").disabled = !isChanged();
   $("save-status").textContent = isChanged() ? "Your earlier changes are loaded" : "";

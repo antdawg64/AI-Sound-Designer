@@ -169,7 +169,13 @@ def attach(api, *, jobs: Path, get_job: Callable[[str], dict | None], refresh: C
             fps = float(media.probe(video_of(job_id, job))["fps"]) or 30.0
         except Exception:
             fps = 30.0
+        # Sounds still being made (asked for before this page was opened or reloaded).
+        have = {c["id"] for c in manifest["clips"]}
+        pending = [{"id": i, "prompt": a.get("prompt", ""), "time": a.get("time", 0.0)}
+                   for i, a in ((adds.get(job_id) or {}) if adds is not None else {}).items()
+                   if a.get("state") == "working" and time.time() - a.get("asked", 0) < 900 and i not in have]
         return {"job": {k: job[k] for k in ("id", "name", "seconds", "test_tones") if k in job},
+                "pending": pending,
                 "fps": round(min(max(fps, 5.0), 120.0), 4),
                 "can_add": adds is not None and start_add is not None,
                 "add_seconds": list(C.EDITOR_ADD_SECONDS), "add_max": int(C.EDITOR_ADD_MAX),

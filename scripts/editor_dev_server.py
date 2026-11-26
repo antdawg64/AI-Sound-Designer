@@ -10,6 +10,7 @@ Edits are saved in the output folder, and the tuning records in tuning_data/raw/
 """
 
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -57,7 +58,7 @@ def make_app(out_dir: Path, video: Path, records: Path) -> FastAPI:
         import make_sound as M
 
         def work():
-            time.sleep(3)
+            time.sleep(float(os.environ.get("ADD_SECONDS", 3)))
             try:
                 M.add_sound(video, out_dir, M.TestTones(), add_id, ask["prompt"], ask["time"], ask["seconds"])
                 adds[job_id][add_id]["state"] = "done"
