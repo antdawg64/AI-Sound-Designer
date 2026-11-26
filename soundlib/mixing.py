@@ -100,8 +100,14 @@ def _loud_part_db(mono: np.ndarray) -> float:
     """Level of the loud parts of a sound: the 90th percentile of its 100 ms levels.
     Unlike a plain average it reads a few sharp sounds and a steady roar alike."""
     hop = int(0.1 * C.SAMPLE_RATE)
+    # Only the sound itself is measured, not digital silence around it: a short real
+    # recording placed in a longer clip would otherwise read as almost silent, be turned
+    # up enormously, and force every other effect down to make room for its peak.
+    heard = np.flatnonzero(np.abs(mono) > 1e-5)
+    if len(heard):
+        mono = mono[heard[0]: heard[-1] + 1]
     if len(mono) < hop:
-        return -120.0
+        return float(10 * np.log10(np.mean(mono.astype(np.float64) ** 2) + 1e-12)) if len(mono) > 64 else -120.0
     frames = mono[: len(mono) // hop * hop].reshape(-1, hop).astype(np.float64)
     levels = 10 * np.log10(np.mean(frames ** 2, axis=1) + 1e-12)
     return float(np.percentile(levels, 90))

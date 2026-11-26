@@ -116,6 +116,10 @@ def main_event(audio: np.ndarray, sr: int, longest: float) -> tuple[int, int, in
     env = envelope_db(audio, sr, 0.005)
     if not len(env):
         return 0, 0, len(audio)
+    # Smoothed over 50 ms: a deep sound (a boom, a thud) swings between loud and quiet
+    # within each cycle, which must not be mistaken for the sound ending or a new one starting.
+    power = np.convolve(10 ** (env / 10), np.ones(10) / 10, mode="same")
+    env = 10 * np.log10(power + 1e-12)
     p = int(env.argmax())
     top = env[p]
     floor = max(float(np.percentile(env, 10)), top - 60)
@@ -359,11 +363,14 @@ def wanted(seg: dict) -> str | None:
     return kind if kind in C.LIBRARY_KINDS else None
 
 
+FIT_VERSION = 2      # raise when the cutting and placing changes, so saved sounds are remade
+
+
 def cache_tag(seg: dict) -> list:
     """What to add to a saved sound's key so results with and without the library, or
     with different library settings, never get mixed up. Empty when the library is off."""
     kind = wanted(seg)
-    return [["library", kind, options(), round(float(seg.get("time", 0.0)) - float(seg["clip_start"]), 3)]] if kind else []
+    return [["library", FIT_VERSION, kind, options(), round(float(seg.get("time", 0.0)) - float(seg["clip_start"]), 3)]] if kind else []
 
 
 def find(backend, prompt: str, seg: dict, search=None) -> tuple[np.ndarray, int] | None:

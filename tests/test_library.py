@@ -165,3 +165,22 @@ def test_one_source_keeps_one_recording():
         assert len(calls) == 1
     finally:
         C.reset()
+
+
+def test_a_deep_boom_is_not_chopped_short():
+    t = np.arange(int(3 * SR)) / SR
+    boom = (0.8 * np.sin(2 * np.pi * 35 * t) * np.exp(-t * 2.5)).astype(np.float32)
+    audio = np.concatenate([np.zeros(int(0.5 * SR), np.float32), boom])[:, None]
+    start, peak, end = L.main_event(audio, SR, longest=1.5)
+    assert (end - start) / SR > 0.8
+
+
+def test_a_short_recording_in_a_long_clip_is_not_turned_up_to_swamp_the_rest():
+    from soundlib import mixing
+    sr = C.SAMPLE_RATE
+    rng = np.random.default_rng(5)
+    blip = np.zeros((int(1.5 * sr), 2), np.float32)
+    blip[int(0.25 * sr):int(0.33 * sr)] = 0.5 * rng.standard_normal((int(0.33 * sr) - int(0.25 * sr), 2))
+    full = (0.1 * rng.standard_normal((int(1.5 * sr), 2))).astype(np.float32)
+    spot = lambda audio: mixing._spot_audio({"audio": audio, "time": 1.0, "clip_start": 0.75, "gain_db": 0.0})
+    assert np.abs(spot(blip)).max() < 4 * np.abs(spot(full)).max()

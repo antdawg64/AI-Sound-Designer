@@ -74,6 +74,17 @@ live apps cannot reach the library and simply generate every sound as before.
   `library_first`; files `/mnt/project-files/real_recordings/polish_*`. Not applied
   until Anthony rates. Risk told to him: recorded continuous sounds do not follow the
   picture (footsteps pace, the vacuum getting closer).
+- **Fix 2026-11-26 05:20 UTC** (Anthony: "I didn't hear the sound fx on the real
+  recordings"): the final boom had been cut to 0.1 s (a deep sound's level swings within
+  each cycle and was read as the sound ending), and `mixing._loud_part_db` measured the
+  silence around a short recording, so it was turned up about 50 dB and the track's peak
+  limit pushed every other effect down about 30 dB. Fixed in `library.main_event`
+  (smoothed level) and `_loud_part_db` (measures only the sound itself); two tests.
+  Rebuilt as run `20261126-050745` on the same rating page; 17 of 18 sounds real.
+  Lesson: always print each clip's level after a library run (I had not).
+- Anthony said the music on the new reference video is "probably one of the best ones
+  we've generated so far" (Lyria 3 Pro, current settings). Copy kept at
+  `/mnt/project-files/real_recordings/polish_music_anthony_liked.wav`.
 - Known limits: the vacuum video has few everyday sounds, so it is a weak test; a video
   with doors, footsteps or objects being put down would show more. Kenney's CC0 packs
   are not in (no direct download link found).
