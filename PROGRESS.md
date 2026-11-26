@@ -64,6 +64,16 @@ live apps cannot reach the library and simply generate every sound as before.
   Full-size files: `/mnt/project-files/real_recordings/`. After Anthony rates: copy the
   page's `ratings` rows into `ratings.csv`, then
   `python tune.py --variants variants_library.json --apply`.
+- **Round 17** (2026-11-26, Anthony: "rebuild the entire thing from real recordings and
+  just generate the ones we don't have"): `library_judge: claude_library_first` with
+  `sfx_sources: separate`, `library_min_score` 0.15, `library_candidates` 8. Continuous
+  sources come from the library too; one source keeps one recording for the whole video
+  and its stretches carry on from each other. On the new reference video 15 of 18
+  sounds were real recordings (8 different files), $0.12 instead of $0.38 because far
+  less is generated. Same rating page, run `20261126-041604`, tiles `current` and
+  `library_first`; files `/mnt/project-files/real_recordings/polish_*`. Not applied
+  until Anthony rates. Risk told to him: recorded continuous sounds do not follow the
+  picture (footsteps pace, the vacuum getting closer).
 - Known limits: the vacuum video has few everyday sounds, so it is a weak test; a video
   with doors, footsteps or objects being put down would show more. Kenney's CC0 packs
   are not in (no direct download link found).
