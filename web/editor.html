@@ -195,7 +195,8 @@
     #reset { display: none; }
     .head.rowhead { padding: 0 7px; font-size: 11.5px; }
     .vol span { display: none; }
-    .top h1, .top .name, .zoom, #save-status { display: none; }
+    .top h1, .top .name, #save-status { display: none; }
+    .zoom { flex: 1; min-width: 120px; } .zoom input { flex: 1; width: auto; }
     #time { min-width: 0; font-size: 13px; }
     button { min-height: 38px; }
     .clip { min-height: 0; }
@@ -1114,11 +1115,22 @@ $("reset").addEventListener("click", () => {
   if (playing) scheduleAll();
   commit("reset_all");
 });
-$("zoom").addEventListener("input", e => {
-  const sc = $("scroll"), centre = (sc.scrollLeft + sc.clientWidth / 2) / pps;
-  zoom = +e.target.value; layout();
-  sc.scrollLeft = centre * pps - sc.clientWidth / 2;
-});
+// Zooming happens around the red line: it stays where it is on the screen and the
+// timeline opens up around it. If the red line is out of view, it is brought to the middle.
+function zoomTo(value) {
+  const sc = $("scroll"), t = now();
+  let x = t * pps - sc.scrollLeft;
+  if (x < 0 || x > sc.clientWidth) x = sc.clientWidth / 2;
+  zoom = clamp(value, 1, 8); zoomSet = true; $("zoom").value = zoom;
+  layout();
+  sc.scrollLeft = Math.max(0, t * pps - x);
+}
+$("zoom").addEventListener("input", e => zoomTo(+e.target.value));
+$("scroll").addEventListener("wheel", e => {          // pinch on a trackpad, or Ctrl + wheel
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();
+  zoomTo(zoom * Math.exp(-e.deltaY * 0.01));
+}, { passive: false });
 window.addEventListener("resize", () => { if (M) layout(); });
 document.addEventListener("keydown", e => {
   if (!M || $("result").open) return;
