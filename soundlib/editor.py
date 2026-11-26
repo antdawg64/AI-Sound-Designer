@@ -241,7 +241,9 @@ def initial_pieces(manifest: dict) -> list[dict]:
                     label = labels[shot]
             pieces.append({"id": f"{clip['id']}.{i}" if cuts else clip["id"], "src": clip["id"],
                            "in": a, "out": b, "start": round(clip["start"] + a, 6),
-                           "gain_db": 0.0, "muted": False, "deleted": False, "label": label})
+                           "gain_db": 0.0, "muted": False, "label": label,
+                           # one of several options for a sound: only the first starts out in use
+                           "deleted": bool(clip.get("option_of")) and not clip.get("first_option")})
     return pieces
 
 
@@ -337,13 +339,8 @@ def load_state(out_dir: Path, manifest: dict) -> dict:
     # timeline now, where it was asked for.
     placed = {p["src"] for p in state["pieces"]}
     clips = {c["id"]: c for c in manifest["clips"]}
-    for new in [p for p in initial_pieces(manifest)
-                if p["src"] not in placed and clips[p["src"]].get("added")]:
-        replaced = clips[new["src"]].get("refine_of")      # a remake takes the old one's place
-        for old in state["pieces"]:
-            if replaced and old["src"] == replaced:
-                old["deleted"] = True
-        state["pieces"].append(new)
+    state["pieces"] += [p for p in initial_pieces(manifest)
+                        if p["src"] not in placed and clips[p["src"]].get("added")]
     return state
 
 
@@ -524,7 +521,8 @@ def moment_level_db(out_dir: Path) -> float:
 def save_added(out_dir: Path, add_id: str, audio: np.ndarray, *, start: float, time_s: float,
                prompt: str, duration: float, recording: dict | None = None,
                made_as: str | None = None, seconds: float | None = None,
-               refine_of: str | None = None, tweak: str | None = None) -> dict:
+               refine_of: str | None = None, tweak: str | None = None, idea: str | None = None,
+               option_of: str | None = None, first_option: bool = False) -> dict:
     """Keep one added sound (stereo, 48 kHz, already levelled) and return its clip, shaped
     like the key moments the AI made. `start`: where `audio` begins in the video."""
     sr = C.SAMPLE_RATE
@@ -546,7 +544,10 @@ def save_added(out_dir: Path, add_id: str, audio: np.ndarray, *, start: float, t
         clip["recording"] = recording
     # made_as: the description it was really made from; seconds: the length asked for;
     # refine_of / tweak: the sound this one replaces and how it was to change.
-    for key, value in (("made_as", made_as), ("seconds", seconds), ("refine_of", refine_of), ("tweak", tweak)):
+    # idea: the short name of this option; option_of: the options it is one of (the person
+    # uses one at a time); first_option: the one in use until they choose another.
+    for key, value in (("made_as", made_as), ("seconds", seconds), ("refine_of", refine_of), ("tweak", tweak),
+                       ("idea", idea), ("option_of", option_of), ("first_option", first_option)):
         if value:
             clip[key] = value
     (folder / ADDED / f"{add_id}.json").write_text(json.dumps(clip, indent=2))
@@ -600,6 +601,8 @@ def tuning_record(manifest: dict, state: dict, *, job: dict, report: dict | None
                       else "cut" if not whole else "ai" if was is not None else "copy",
             "asked_for": bool(clip.get("added")), "made_as": clip.get("made_as"),
             "remade_from": clip.get("refine_of"), "tweak": clip.get("tweak"),
+            "idea": clip.get("idea"), "option_of": clip.get("option_of"),
+            "real_recording": bool(clip.get("recording")),
             "loudness": clip.get("loudness"), "in": piece["in"], "out": piece["out"],
             "start": round(clip["start"] + piece["in"], 4),
             "duration": round(piece["out"] - piece["in"], 4), "level_db": clip.get("level_db"),

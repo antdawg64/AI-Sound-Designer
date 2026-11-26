@@ -581,21 +581,22 @@ DETAILS = ("minimal", "balanced", "rich")
 
 
 def add_sound(video: Path, out_dir: Path, backend, add_id: str, prompt: str, time_s: float,
-              seconds: float, describe=None, refine: dict | None = None) -> tuple[dict, dict]:
-    """One more sound for a finished video, asked for in the editor by describing it.
+              seconds: float, describe=None, refine: dict | None = None) -> tuple[list[dict], dict]:
+    """More sound for a finished video, asked for in the editor by describing it.
 
-    It is made the way a key moment is (a real recording when one clearly fits, otherwise
-    generated from that piece of the video and the description), then slid so that the
-    sound really starts on the chosen instant, and levelled to sit among the video's
-    other key moments. Returns (the editor's clip, what it cost).
+    The Foley way: Claude looks at the frames around the chosen instant and gives three
+    ideas for the sound (the literal one, and stand-ins that would play the part). Each
+    idea is made the way a key moment is (a real recording when one fits, otherwise
+    generated from that piece of the video and the description), slid so that it really
+    starts on the chosen instant, and levelled to sit among the video's other key
+    moments. The person then picks one in the editor. Returns (the editor's clips, the
+    first being the one that starts out in use; what it all cost).
 
     prompt: the person's own words. describe(frames, words, seconds, summary, previous,
-    tweak) -> {"prompt", "usage"}: Claude looks at the frames around the instant and
-    writes the description the sound is really made from (people who know what they
-    want to hear are often not good at describing it). Without it the words are used
-    as they are. refine: {"of": the sound being remade, "previous": what that one was
-    made from, "tweak": how it should change}; a remade sound is always generated, so
-    it cannot come back as the same recording.
+    tweak) -> {"ideas": [{name, prompt}], "usage"}; without it (test tones) the words
+    are used as they are. refine: more options for sounds that exist already:
+    {"group": the options they join, "previous": descriptions already tried, "tweak":
+    how it should change, "taken": recordings already among the options}.
     """
     sr = C.SAMPLE_RATE
     duration = float(editor.load_manifest(out_dir)["duration"])
@@ -603,56 +604,79 @@ def add_sound(video: Path, out_dir: Path, backend, add_id: str, prompt: str, tim
     start = max(0.0, time_s - float(C.SPOT_BEFORE_SECONDS))
     end = min(duration, start + float(seconds))
     start = max(0.0, min(start, end - 1.0))            # near the very end: still a full second
-    spot = {"index": 1200 + int(hashlib.sha256(add_id.encode()).hexdigest(), 16) % 700,
-            "time": round(time_s, 3), "prompt": prompt, "gain_db": 0.0,
-            "clip_start": round(start, 3), "clip_end": round(end, 3),
-            "takes": max(int(C.FOLEY_CANDIDATES), int(C.SPOT_CANDIDATES))}
     words, refine, extra = prompt, refine or {}, 0.0
-    if refine.get("tweak") and not describe:
-        prompt = f"{refine.get('previous') or words}, {refine['tweak']}"
-    if describe:
+    ideas = [{"name": words[:40], "prompt": f"{words}, {refine['tweak']}" if refine.get("tweak") else words}]
+    if not describe:                                   # test tones: three stand-ins for the three ideas
+        ideas += [{"name": f"{words[:30]} (idea {n})", "prompt": f"{ideas[0]['prompt']} {n}"} for n in (2, 3)]
+    else:
         try:
-            around = [("before", time_s - 0.4), ("chosen", time_s), ("after", time_s + 0.3),
-                      ("after", min(time_s + max(0.7, seconds * 0.6), duration - 0.05))]
-            frames = media.frames_at(video, [max(0.0, t) for _, t in around], 640)
+            around = [time_s - 0.4, time_s, time_s + 0.3, min(time_s + max(0.7, seconds * 0.6), duration - 0.05)]
+            frames = media.frames_at(video, [max(0.0, t) for t in around], 640)
             nearest = min(frames, key=lambda f: abs(f["time"] - time_s)) if frames else None
             for f in frames:
                 f["chosen"] = f is nearest
             summary = (editor.load_manifest(out_dir) or {}).get("summary", "")
             told = describe(frames, words, seconds, summary, refine.get("previous"), refine.get("tweak"))
-            prompt, extra = told["prompt"], float(told["usage"].get("dollars", 0.0))
-        except Exception as exc:        # the sound is still made, from the words as typed
-            print(f"description not improved for {add_id}: {exc}", flush=True)
-    spot["prompt"] = prompt
+            ideas, extra = told["ideas"][:3], float(told["usage"].get("dollars", 0.0))
+        except Exception as exc:        # a sound is still made, from the words as typed
+            print(f"no ideas for {add_id}: {exc}", flush=True)
+    seed = int(hashlib.sha256(add_id.encode()).hexdigest(), 16) % 600
+    spots = [{"index": 1200 + seed + n, "time": round(time_s, 3), "prompt": idea["prompt"], "gain_db": 0.0,
+              "clip_start": round(start, 3), "clip_end": round(end, 3),
+              "takes": max(int(C.FOLEY_CANDIDATES), int(C.SPOT_CANDIDATES))} for n, idea in enumerate(ideas)]
     work = Path(tempfile.mkdtemp(prefix="add_sound_"))
     usual_library = C.SFX_LIBRARY
+    made = []
     try:
         backend.connect()
-        clip = media.cut_clip(video, spot, work / "clip.mp4")
-        if refine.get("tweak"):
-            C.override({"sfx_library": "off"})
-        audio, got_sr = backend.effects(clip, prompt, spot)
-        spot["audio"] = media.to_stereo_48k(audio, got_sr)
-        _snap(video, spot, duration, pinned=True)       # its start lands on the chosen frame
-        audio = mixing.clean_clip(mixing.level_clip(spot["audio"]), moment=seconds <= 2.0)
-        audio = audio.astype(np.float32).copy()
-        fade_in, fade_out = min(int(0.03 * sr), len(audio) // 2), min(int(0.3 * sr), len(audio) // 2)
-        if fade_in:
-            audio[:fade_in] *= np.linspace(0.0, 1.0, fade_in, dtype=np.float32)[:, None]
-        if fade_out:
-            audio[-fade_out:] *= np.linspace(1.0, 0.0, fade_out, dtype=np.float32)[:, None]
-        now = mixing._loud_part_db(audio.mean(axis=1))
-        if now > -90:
-            audio = audio * 10 ** ((editor.moment_level_db(out_dir) - now) / 20)
-        peak = float(np.abs(audio).max()) if len(audio) else 0.0
-        if peak > 0.89:
-            audio = audio * (0.89 / peak)
-        lib = spot.get("library") or {}
-        made = editor.save_added(
-            out_dir, add_id, audio.astype(np.float32), start=spot["clip_start"], time_s=spot["time"],
-            prompt=words, duration=duration, made_as=prompt, seconds=seconds,
-            refine_of=refine.get("of"), tweak=refine.get("tweak"),
-            recording={k: lib.get(k) for k in ("source", "id", "title", "licence")} if lib.get("used") else None)
+        clip = media.cut_clip(video, spots[0], work / "clip.mp4")
+
+        def one(spot: dict) -> None:
+            audio, got_sr = backend.effects(clip, spot["prompt"], spot)
+            spot["audio"] = media.to_stereo_48k(audio, got_sr)
+
+        with ThreadPoolExecutor(len(spots), thread_name_prefix="ideas") as pool:
+            list(pool.map(one, spots))
+        # Two ideas answered with the same recording (or one already among the options)
+        # would be no choice: the later one is generated instead.
+        taken = set(refine.get("taken") or [])
+        for spot in spots:
+            lib = spot.get("library") or {}
+            if lib.get("used") and lib.get("id") in taken:
+                C.override({"sfx_library": "off"})
+                spot.pop("library", None)
+                one(spot)
+                C.override({"sfx_library": usual_library})
+            elif lib.get("used"):
+                taken.add(lib.get("id"))
+        level = editor.moment_level_db(out_dir)
+        for n, (spot, idea) in enumerate(zip(spots, ideas)):
+            _snap(video, spot, duration, pinned=True)       # its start lands on the chosen frame
+            audio = mixing.clean_clip(mixing.level_clip(spot["audio"]), moment=seconds <= 2.0)
+            audio = audio.astype(np.float32).copy()
+            fade_in, fade_out = min(int(0.03 * sr), len(audio) // 2), min(int(0.3 * sr), len(audio) // 2)
+            if fade_in:
+                audio[:fade_in] *= np.linspace(0.0, 1.0, fade_in, dtype=np.float32)[:, None]
+            if fade_out:
+                audio[-fade_out:] *= np.linspace(1.0, 0.0, fade_out, dtype=np.float32)[:, None]
+            now = mixing._loud_part_db(audio.mean(axis=1))
+            if now > -90:
+                audio = audio * 10 ** ((level - now) / 20)
+            peak = float(np.abs(audio).max()) if len(audio) else 0.0
+            if peak > 0.89:
+                audio = audio * (0.89 / peak)
+            lib = spot.get("library") or {}
+            try:
+                made.append(editor.save_added(
+                    out_dir, f"{add_id}o{n}", audio.astype(np.float32), start=spot["clip_start"],
+                    time_s=spot["time"], prompt=words, duration=duration, made_as=spot["prompt"],
+                    seconds=seconds, idea=idea["name"], option_of=refine.get("group") or add_id,
+                    first_option=not refine and not made, tweak=refine.get("tweak"),
+                    recording={k: lib.get(k) for k in ("source", "id", "title", "licence")} if lib.get("used") else None))
+            except ValueError as exc:                   # one idea came out silent: the others still count
+                print(f"option {n} of {add_id} dropped: {exc}", flush=True)
+        if not made:
+            raise RuntimeError("none of the ideas gave a sound")
     finally:
         C.override({"sfx_library": usual_library})
         shutil.rmtree(work, ignore_errors=True)
@@ -661,7 +685,7 @@ def add_sound(video: Path, out_dir: Path, backend, add_id: str, prompt: str, tim
               for c in backend.gpu_calls)
     api = sum(float(c.get("dollars", 0)) for c in backend.api_calls)
     cost = {"dollars": round(gpu + api + extra + float(backend.claude.get("dollars", 0.0)), 4),
-            "from_library": bool(lib.get("used"))}
+            "from_library": sum(bool(c.get("recording")) for c in made)}
     return made, cost
 
 

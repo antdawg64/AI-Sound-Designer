@@ -171,9 +171,9 @@ claude_image = (
 
 @app.function(image=claude_image, secrets=[modal.Secret.from_name(C.CLAUDE_SECRET_NAME)], timeout=300)
 def describe_sound(frames: list[dict], words: str, seconds: float, summary: str = "",
-                   previous: str | None = None, tweak: str | None = None) -> dict:
-    """Claude looks at the chosen frame and turns someone's rough words into the description
-    a sound asked for in the editor is made from."""
+                   previous: list[str] | None = None, tweak: str | None = None) -> dict:
+    """Claude looks at the chosen frame and gives three ideas, the way a Foley artist would,
+    for a sound asked for in the editor: the literal one and stand-ins that play the part."""
     from soundlib.planning import ask_added
 
     return ask_added(frames, words, seconds, summary, previous, tweak)
@@ -182,7 +182,8 @@ def describe_sound(frames: list[dict], words: str, seconds: float, summary: str 
 @app.function(image=image, volumes={str(JOBS): jobs_volume}, cpu=2.0, memory=4096, timeout=900,
               max_containers=6)
 def add_sound(job_id: str, add_id: str, ask: dict) -> dict:
-    """Make one more sound for a finished video, asked for in the editor by describing it."""
+    """Make a sound for a finished video, asked for in the editor by describing it: three
+    options to choose from, real recordings first."""
     import traceback
 
     import make_sound as M
@@ -195,7 +196,7 @@ def add_sound(job_id: str, add_id: str, ask: dict) -> dict:
         jobs_volume.reload()
         job = job_status.get(job_id, {})
         backend = M.TestTones() if job.get("test_tones") else M.Cloud()
-        clip, cost = M.add_sound(JOBS / job_id / f"input{job.get('ext', '.mp4')}", JOBS / job_id / "out",
+        clips, cost = M.add_sound(JOBS / job_id / f"input{job.get('ext', '.mp4')}", JOBS / job_id / "out",
                                  backend, add_id, ask["prompt"], ask["time"], ask["seconds"],
                                  describe=None if job.get("test_tones") else describe_sound.remote,
                                  refine=ask.get("refine"))

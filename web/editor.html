@@ -78,6 +78,39 @@
   .panel .status { font-size: 13px; min-height: 18px; }
   .making { border: 1px dashed var(--added); border-radius: 10px; padding: 10px 12px; margin: 4px 0 10px; font-size: 13px; }
   .making .busy { margin: 8px 0 6px; }
+  .options { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 4px 0 8px; }
+  .option { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 7px 9px; }
+  .option.using { border-color: var(--added); background: color-mix(in srgb, var(--added) 9%, transparent); }
+  .option .what { flex: 1; min-width: 0; font-size: 13px; }
+  .option .what b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .option .what span { font-size: 11.5px; color: var(--muted); }
+  .option button { padding: 5px 9px; font-size: 12.5px; min-height: 0; flex: none; }
+  /* A vertical video plays large down the right side; everything else sits to its left. */
+  @media (min-width: 821px) {
+    body.tall { display: grid; grid-template-columns: minmax(0, 1fr) min(42vw, calc((100vh - 84px) * var(--shape, 0.5625)));
+                grid-template-rows: auto auto minmax(150px, 1fr) auto auto auto; }
+    body.tall .top { grid-column: 1 / -1; grid-row: 1; }
+    body.tall .small-screen { grid-column: 1 / -1; grid-row: 2; }
+    body.tall .stage { display: contents; }
+    body.tall .viewer { grid-column: 2; grid-row: 3 / 7; margin: 14px 16px 14px 0; position: relative; min-height: 0; }
+    body.tall .viewer video { position: absolute; inset: 0; }
+    body.tall .panel { grid-column: 1; grid-row: 3; width: auto; margin: 14px 14px 8px 16px; min-height: 0; }
+    body.tall .transport { grid-column: 1; grid-row: 4; min-width: 0; }
+    body.tall .timeline { grid-column: 1; grid-row: 5; min-width: 0; }
+    body.tall .removed { grid-column: 1; grid-row: 6; min-width: 0; }
+    body.tall .timeline { max-height: 46vh; }
+  }
+  /* With room to spare, the side panel stands between the timeline and the tall video. */
+  @media (min-width: 1280px) {
+    body.tall { grid-template-columns: minmax(0, 1fr) 320px min(36vw, calc((100vh - 84px) * var(--shape, 0.5625)));
+                grid-template-rows: auto auto auto auto auto minmax(0, 1fr); }
+    body.tall .viewer { grid-column: 3; }
+    body.tall .panel { grid-column: 2; grid-row: 3 / 7; margin: 14px 14px 14px 0; }
+    body.tall .transport { grid-row: 3; padding-top: 12px; flex-wrap: wrap; }
+    body.tall .transport .hint { display: none; }
+    body.tall .timeline { grid-row: 4; max-height: calc(100vh - 190px); }
+    body.tall .removed { grid-row: 5; }
+  }
   .panel .status.bad { color: var(--bad); }
   .busy { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 12px 0 8px; }
   .busy div { height: 100%; width: 35%; border-radius: 99px; background: var(--added); animation: busy 1.4s ease-in-out infinite alternate; }
@@ -824,10 +857,10 @@ function drawAddPanel(panel) {
     box.appendChild(el("b", null, pendingAdds.length === 1 ? "Making 1 sound…" : "Making " + pendingAdds.length + " sounds…"));
     for (const item of pendingAdds) box.appendChild(el("div", "muted", clock(item.at, 2) + "  “" + shortLabel(item.prompt, 60) + "”"));
     const bar = el("div", "busy"); bar.appendChild(el("div")); box.appendChild(bar);
-    box.appendChild(el("div", "muted", "Each appears on the timeline by itself, usually in under a minute. You can add more meanwhile."));
+    box.appendChild(el("div", "muted", "Each comes with three options to choose from, and appears on the timeline by itself, usually in under a minute. You can add more meanwhile."));
     panel.appendChild(box);
   }
-  const tip = el("p", "muted", "Put the red line on the exact frame where the sound should start, then describe it.");
+  const tip = el("p", "muted", "Put the red line on the exact frame where the sound should start, then describe it. You get three options to choose from: real recordings where they fit.");
   tip.style.fontSize = "13px"; panel.appendChild(tip);
   const at = el("div", "at");
   at.appendChild(el("span", "muted", "Starts at"));
@@ -865,26 +898,93 @@ function openAdd() {
 }
 const MAX_AT_ONCE = 5;
 let remakeNote = null;
-// Make a short sound again with a change ("punchier", "softer", or the person's own words).
-async function remake(p, tweak) {
+// The options of one sound: three ideas are made for each sound asked for, and one is in
+// use at a time. A sound the AI placed becomes a group once more ideas are asked for it.
+const groupOf = id => (byId[id] && byId[id].option_of) || id;
+const optionsOf = g => M.clips.filter(c => c.id === g || c.option_of === g);
+const inUse = (g, st) => (st || S).pieces.filter(q => groupOf(q.src) === g && !q.deleted);
+// "Three more ideas" for a short sound, optionally with a change in the person's own words.
+async function moreIdeas(p, tweak) {
   if (pendingAdds.length >= MAX_AT_ONCE) { remakeNote = { bad: true, text: MAX_AT_ONCE + " sounds are being made. Please wait for one to finish." }; return drawPanel(); }
-  const src = byId[p.src];
-  const item = { prompt: src.label + " (" + tweak + ")", at: Math.max(0, p.start), id: null, replaces: p.src };
+  const item = { prompt: byId[p.src].label + (tweak ? " (" + tweak + ")" : " (more ideas)"), at: Math.max(0, p.start), id: null, group: groupOf(p.src) };
   pendingAdds.push(item); remakeNote = null;
   drawPanel(); drawPending();
   try {
     const r = await fetch(API + "/add", { method: "POST", headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ refine: p.src, tweak }) });
+                                          body: JSON.stringify({ refine: p.src, tweak: tweak || "" }) });
     const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(body.detail || "We couldn't start remaking that sound. Please try again.");
+    if (!r.ok) throw new Error(body.detail || "We couldn't start on more ideas. Please try again.");
     item.id = body.id;
-    log("remake_ask", { clip: p.id, how: tweak });
+    log("more_ideas_ask", { clip: p.id, how: tweak || "" });
     setTimeout(() => checkAdded(item), 2500);
   } catch (err) {
     pendingAdds = pendingAdds.filter(x => x !== item);
     remakeNote = { bad: true, text: err.message };
     drawPending(); drawPanel();
   }
+}
+// Where an option would sit: its own start, moved by as much as the one in use was moved.
+function optionPiece(clip, g) {
+  const first = copyOf(FIRST.find(q => q.src === clip.id) || { id: clip.id, src: clip.id, start: clip.start, in: 0, out: clip.duration, gain_db: 0, muted: false, label: clip.label });
+  const now = inUse(g)[0];
+  if (now) { first.start = +(first.start + (now.start - homeOf(now))).toFixed(4); first.gain_db = now.gain_db; first.muted = now.muted; }
+  return first;
+}
+async function listenOption(clip, g) {
+  if (ctx.state !== "running") await ctx.resume();
+  stopAll();
+  const q = optionPiece(clip, g), src = ctx.createBufferSource(), gain = ctx.createGain();
+  src.buffer = buffers[clip.id];
+  gain.gain.value = gainOf(q.gain_db + S.effects_db);
+  src.connect(gain); gain.connect(master); src.start(0);
+  sources["listen"] = [src, gain];
+  seek(Math.max(0, q.start));
+  log("listen_option", { clip: clip.id });
+}
+function useOption(clip, g) {
+  const fresh = optionPiece(clip, g);
+  fresh.deleted = false;
+  for (const q of S.pieces) if (groupOf(q.src) === g && !q.deleted) { q.deleted = true; stopSource(q.id); }
+  const mine = S.pieces.find(q => q.id === fresh.id);
+  if (mine) Object.assign(mine, fresh); else S.pieces.push(fresh);
+  selected = fresh.id; multi = new Set();
+  if (playing) schedulePiece(piece(fresh.id));
+  commit("use_option", { clip: clip.id, of: g, real: !!clip.recording });
+}
+function drawOptions(panel, p) {
+  const g = groupOf(p.src), list = optionsOf(g);
+  const waiting = pendingAdds.some(x => x.group === g);
+  const f = el("div", "field");
+  if (list.length > 1) {
+    f.appendChild(el("label", null, "Options for this sound"));
+    const box = el("div", "options");
+    for (const c of list) {
+      const using = c.id === p.src, row = el("div", "option" + (using ? " using" : "")), what = el("div", "what");
+      what.appendChild(el("b", null, c.idea || (c.added ? shortLabel(c.label, 40) : "The AI's first choice")));
+      what.appendChild(el("span", null, c.recording ? "Real recording" : "Generated"));
+      what.title = c.made_as || c.label;
+      row.appendChild(what);
+      const hear = el("button", null, "▶"); hear.title = "Listen to this option"; hear.setAttribute("aria-label", "Listen to " + (c.idea || c.label));
+      hear.addEventListener("click", () => using ? listen(p.id) : listenOption(c, g));
+      row.appendChild(hear);
+      const use = el("button", using ? "on" : "", using ? "In use" : "Use this"); use.disabled = using;
+      use.addEventListener("click", () => useOption(c, g));
+      row.appendChild(use);
+      box.appendChild(row);
+    }
+    f.appendChild(box);
+  }
+  f.appendChild(el("label", null, list.length > 1 ? "None of them right?" : "Not quite right?"));
+  const own = el("div", "at"), text = el("input"); text.type = "text"; text.maxLength = 80; text.id = "tweak-text";
+  text.placeholder = "optional: more of a pop than a bang"; text.disabled = waiting;
+  const go = el("button", null, "3 more ideas"); go.disabled = waiting; go.id = "more-ideas";
+  const send = () => moreIdeas(p, text.value.trim());
+  go.addEventListener("click", send); text.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+  own.appendChild(text); own.appendChild(go); f.appendChild(own);
+  f.appendChild(el("p", "status" + (!waiting && remakeNote && remakeNote.bad ? " bad" : " muted"),
+    waiting ? "Finding three more ideas… they appear here when they are ready. Nothing on the timeline changes until you pick one."
+            : remakeNote ? remakeNote.text : "Real recordings are tried first. A sound is generated only when no recording fits."));
+  panel.appendChild(f);
 }
 async function askForSound() {
   const prompt = addDraft.text.trim().replace(/\s+/g, " ");
@@ -914,8 +1014,8 @@ function redrawKeepingTyping() {
 }
 function addFailed(item, text) {
   pendingAdds = pendingAdds.filter(x => x !== item);
-  if (item.replaces) {
-    remakeNote = { bad: true, text: text || "We couldn't remake that sound. Please try again." };
+  if (item.group) {
+    remakeNote = { bad: true, text: text || "We couldn't find more ideas. Please try again." };
     drawPending(); return drawPanel();
   }
   if (!addDraft.text.trim()) addDraft.text = item.prompt;         // so it can be tried again
@@ -928,47 +1028,47 @@ async function checkAdded(item) {
   try {
     const r = await fetch(API + "/add/" + item.id, { cache: "no-store" });
     const body = await r.json().catch(() => ({}));
-    if (r.ok && body.state === "done") return await placeAdded(item, body.clip, body.piece);
+    if (r.ok && body.state === "done") return await placeAdded(item, body.clips || [body.clip], body.pieces || [body.piece]);
     if (!r.ok || body.state === "failed") return addFailed(item, body.error || body.detail);
   } catch (err) {}                      // a dropped connection: just ask again
   setTimeout(() => checkAdded(item), 2500);
 }
-async function placeAdded(item, clip, first) {
+async function placeAdded(item, clips, firsts) {
   try {
-    const r = await fetch(API + "/audio/" + clip.file);
-    if (!r.ok) throw new Error(clip.file);
-    buffers[clip.id] = await ctx.decodeAudioData(await r.arrayBuffer());
-    peaks[clip.id] = computePeaks(buffers[clip.id]);
+    await Promise.all(clips.filter(c => !buffers[c.id]).map(async c => {
+      const r = await fetch(API + "/audio/" + c.file);
+      if (!r.ok) throw new Error(c.file);
+      buffers[c.id] = await ctx.decodeAudioData(await r.arrayBuffer());
+      peaks[c.id] = computePeaks(buffers[c.id]);
+    }));
   } catch (err) { return addFailed(item, "it was made but didn't load. Reload this page to see it."); }
   pendingAdds = pendingAdds.filter(x => x !== item);
-  if (byId[clip.id]) { drawPending(); return redrawKeepingTyping(); }      // already on the timeline
-  M.clips.push(clip); byId[clip.id] = clip; FIRST.push(first);
-  // A remake takes the old one's place: the old one goes to "Removed" (it can be put back).
-  const takeOver = st => {
-    const fresh = copyOf(first);
-    if (clip.refine_of) for (const old of st.pieces) if (old.src === clip.refine_of && !old.deleted) {
-      old.deleted = true; fresh.gain_db = old.gain_db; fresh.muted = old.muted;
-    }
-    st.pieces.push(fresh);
-  };
-  if (clip.refine_of) S.pieces.filter(q => q.src === clip.refine_of).forEach(q => stopSource(q.id));
-  takeOver(S);
-  // It is part of the video from now on, so every earlier step of Undo gets it too.
-  history = history.map(h => { const s = JSON.parse(h); s.pieces.push(copyOf(first)); return JSON.stringify(s); });
-  if (clip.refine_of) { history = history.slice(0, historyAt + 1); history.push(JSON.stringify(S)); historyAt = history.length - 1; }
-  // Busy with something else (describing the next sound, working on another clip)? Then
-  // the new sound just appears. Otherwise it is selected and the red line goes to it.
-  const mine = clip.refine_of && selected && piece(selected) && piece(selected).src === clip.refine_of;   // looking at the one it replaces
-  const busy = !mine && ((addOpen && !selected && (addDraft.text.trim() || pendingAdds.length)) || (selected && selected !== first.id) || playing);
-  if (!busy) { addOpen = false; addNote = null; selected = first.id; }
-  else if (addOpen && !pendingAdds.length) addNote = { text: "Your sound is on the timeline." };
+  const fresh = clips.filter(c => !byId[c.id]);
+  if (!fresh.length) { drawPending(); return redrawKeepingTyping(); }      // already on the timeline
+  const mine = fresh.map(c => firsts.find(q => q.src === c.id)).filter(Boolean);
+  for (const c of fresh) { M.clips.push(c); byId[c.id] = c; }
+  for (const q of mine) { FIRST.push(q); S.pieces.push(copyOf(q)); }
+  // They are part of the video from now on, so every earlier step of Undo gets them too.
+  history = history.map(h => { const st = JSON.parse(h); mine.forEach(q => st.pieces.push(copyOf(q))); return JSON.stringify(st); });
   const box = $("add-text"), typing = box && document.activeElement === box, a = box && box.selectionStart, b = box && box.selectionEnd;
-  buildTimeline();
-  log("add_sound", { clip: clip.id, at: +first.start.toFixed(3) });
-  afterChange(true);
+  if (item.group) {          // more ideas for a sound that is there already: they only join its options
+    remakeNote = { text: fresh.length + " more to choose from." };
+    log("more_ideas", { of: item.group, n: fresh.length });
+    drawPending(); drawPanel(); drawRemoved();
+  } else {
+    // Busy with something else (describing the next sound, working on another clip)? Then
+    // the new sound just appears. Otherwise it is selected and the red line goes to it.
+    const first = mine.find(q => !q.deleted) || mine[0];
+    const busy = (addOpen && !selected && (addDraft.text.trim() || pendingAdds.length)) || (selected && selected !== first.id) || playing;
+    if (!busy) { addOpen = false; addNote = null; remakeNote = null; selected = first.id; }
+    else if (addOpen && !pendingAdds.length) addNote = { text: "Your sound is on the timeline. Click it to hear the other options." };
+    buildTimeline();
+    log("add_sound", { clip: first.src, at: +first.start.toFixed(3), options: fresh.length, real: fresh.filter(c => c.recording).length });
+    afterChange(true);
+    if (!busy) seek(Math.max(0, fresh[0].time != null ? fresh[0].time : first.start) + 1e-6);
+  }
   const again = $("add-text");
   if (typing && again) { again.focus(); try { again.setSelectionRange(a, b); } catch (err) {} }
-  if (!busy) seek(Math.max(0, clip.time != null ? clip.time : first.start) + 1e-6);
 }
 
 function drawPanel() {
@@ -1028,37 +1128,24 @@ function drawPanel() {
   panel.appendChild(row);
   const src = byId[p.src];
   if (src.made_as && src.made_as !== src.label) {
-    const made = el("p", "muted", "Made as: " + src.made_as + (src.recording ? " (a real recording)" : ""));
+    const made = el("p", "muted", (src.recording ? "A real recording, found as: " : "Generated as: ") + src.made_as);
     made.style.fontSize = "12px"; panel.appendChild(made);
   }
-  if (CAN_ADD && kind === "moment") {       // not quite right? make it again, changed
-    const f2 = el("div", "field"); f2.appendChild(el("label", null, "Not quite right? Make it again…"));
-    const waiting = pendingAdds.some(x => x.replaces === p.src);
-    const chips = el("div", "seg");
-    for (const how of ["Punchier", "Softer", "Longer", "Shorter", "More cartoony", "More realistic", "Deeper", "Brighter"]) {
-      const b = el("button", null, how); b.disabled = waiting;
-      b.addEventListener("click", () => remake(p, how.toLowerCase()));
-      chips.appendChild(b);
-    }
-    f2.appendChild(chips);
-    const own = el("div", "at"), box = el("input"); box.type = "text"; box.maxLength = 80; box.id = "tweak-text";
-    box.placeholder = "or say it your way: more of a pop than a bang"; box.disabled = waiting;
-    const go = el("button", null, "Remake"); go.disabled = waiting;
-    const send = () => { if (box.value.trim().length >= 2) remake(p, box.value.trim()); };
-    go.addEventListener("click", send); box.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
-    own.appendChild(box); own.appendChild(go); f2.appendChild(own);
-    const note = el("p", "status" + (waiting ? " muted" : remakeNote && remakeNote.bad ? " bad" : " muted"),
-      waiting ? "Making a new version… it takes this one's place when it is ready, and this one moves to Removed."
-              : remakeNote ? remakeNote.text : "");
-    f2.appendChild(note); panel.appendChild(f2);
-  }
+  if (kind === "moment" && (CAN_ADD || optionsOf(groupOf(p.src)).length > 1)) drawOptions(panel, p);
   const tip = el("p", "muted", "To split, move the red line onto this sound where you want the cut.");
   tip.style.fontSize = "12px"; panel.appendChild(tip);
   drawPlayhead();
 }
 function drawRemoved() {
   const box = $("removed"); box.textContent = "";
-  const gone = S.pieces.filter(p => p.deleted);
+  const shown = new Set();
+  const gone = S.pieces.filter(p => {
+    if (!p.deleted) return false;
+    const g = groupOf(p.src);
+    if (optionsOf(g).length < 2) return true;
+    if (inUse(g).length || shown.has(g)) return false;       // one of its options is in use, or it is listed already
+    shown.add(g); return true;
+  });
   if (gone.length) {
     box.appendChild(el("span", "muted", "Removed:"));
     for (const p of gone) {
@@ -1395,6 +1482,14 @@ async function start() {
   const video = $("video");
   video.addEventListener("error", () => { if (!video.dataset.plain) { video.dataset.plain = "1"; video.src = "/api/job/" + JOB + "/final.mp4"; } });
   video.addEventListener("loadeddata", () => { if (!playing) showPicture(position); });
+  video.addEventListener("loadedmetadata", () => {
+    const tall = video.videoHeight > video.videoWidth * 1.1;
+    document.body.style.setProperty("--shape", (video.videoWidth / Math.max(1, video.videoHeight)).toFixed(4));
+    if (tall !== document.body.classList.contains("tall")) {
+      document.body.classList.toggle("tall", tall);
+      if (document.querySelector(".lane")) { layout(); pinTop(); }
+    }
+  });
   video.src = API + "/video";
 
   const wanted = M.clips.map(c => [c.id, c.file]);
@@ -1415,7 +1510,7 @@ async function start() {
 
   // Sounds that were still being made when this page was opened or reloaded carry on.
   for (const a of info.pending || []) {
-    const item = { prompt: a.prompt + (a.tweak ? " (" + a.tweak + ")" : ""), at: a.time, id: a.id };
+    const item = { prompt: a.prompt + (a.tweak ? " (" + a.tweak + ")" : ""), at: a.time, id: a.id, group: a.group || null };
     pendingAdds.push(item); setTimeout(() => checkAdded(item), 1500);
   }
   if (pendingAdds.length && CAN_ADD) addOpen = true;

@@ -724,46 +724,55 @@ def apply_pins(plan: dict, pins: dict, bursts: list[dict]) -> list[dict]:
 
 # --- A sound asked for in the editor -------------------------------------------------
 
-class WantedSound(BaseModel):
+class SoundIdea(BaseModel):
+    name: str
     prompt: str
+
+
+class SoundIdeas(BaseModel):
     understood_as: str
+    ideas: list[SoundIdea]
 
 
-ADDED_SYSTEM = """You are a film sound editor. Someone watching their video has stopped on \
-one frame and typed, in their own rough words, a sound they want to hear starting there. \
+ADDED_SYSTEM = """You are a Foley artist. Someone watching their video has stopped on one \
+frame and typed, in their own rough words, a sound they want to hear starting there. \
 They have a clear sound in their head but are not good at describing sounds. You are \
-shown the frames around that instant. Your job is to write the description that will \
-get them that sound from a sound-effects model (it makes a sound from a short text, \
-and a library of real recordings is searched with the same text).
+shown the frames around that instant.
 
-Work out what they mean from their words AND from what is on screen: what object or \
-creature is making the sound, what it is made of, how big it is, what it is doing at \
-that instant, the surface or space it is in, and whether the video is realistic, a \
-cartoon, a toy world, slapstick, dramatic. Then write ONE description of the sound \
-itself, 8 to 20 words, in plain concrete words a sound library would use: the thing, \
-the material, the action, and the character of the sound (sharp, soft, hollow, wet, \
-rubbery, metallic, deep, tiny, cartoonish, and so on), with how it starts and ends when \
-that matters (a single hit, two quick squeaks, a rising whoosh that stops dead).
+Give them THREE different sounds to choose from, the way Foley really works: the sound \
+that sells an action on screen is often not a recording of the real thing. Celery \
+snapped for a breaking bone; a leather glove flapped for wings; a popping cork or a \
+ripped strip of velcro for something tearing free.
 
-Rules: keep exactly what they asked for; never swap it for a different sound because \
-the picture suggests one. Describe a sound, not a story or a picture. No music, no \
-speech and no background ambience unless they asked for it. If they wrote something \
-already precise, keep it and only add what makes it fit the scene. If they compare it \
-to something ("like a potato gun"), describe that sound in its own terms as well.
+1. The first idea is the literal sound they asked for, made precise and fitted to what \
+is on screen (the object, its material and size, what it is doing, the space).
+2. and 3. are stand-ins: DIFFERENT real-world sounds, made by something else, that \
+would play the part convincingly or more excitingly at that instant. Pick sounds that \
+are common enough to exist in a library of real recordings, and that differ clearly \
+from each other and from the first (a different source, texture or character), so the \
+three are a real choice. Match the feel of the video (realistic, cartoon, toy world, \
+slapstick, dramatic).
 
-When you are told what an earlier version was described as and how they want it \
-changed ("punchier", "softer", "more cartoony"), write the description for the changed \
-version: keep what the sound is and change its character clearly in that direction, \
-so the result is audibly different from before.
+For each idea give: name, 2 to 5 plain words someone can read at a glance ("Carpet \
+tearing", "Velcro rip", "Cork pop"); and prompt, ONE description of the sound itself, 6 \
+to 16 words, in the plain concrete words a sound library would use: the thing, the \
+material, the action, the character (sharp, soft, hollow, wet, rubbery, deep, tiny), \
+and how it starts and ends when that matters. A sound, not a story or a picture. One \
+event that fits the length given. No music, no speech and no background ambience \
+unless they asked for it. Keep what they asked for as the job the sound has to do.
 
-Answer with prompt (the description) and understood_as (a few plain words on what you \
-took them to mean)."""
+When you are told which ideas were already tried, give three NEW ones that differ \
+clearly from all of those, and if they said how it should change ("punchier", "more of \
+a pop than a bang"), follow that in all three. Then the first need not be literal.
+
+Also give understood_as: a few plain words on what you took them to mean."""
 
 
 def ask_added(frames: list[dict], words: str, seconds: float, summary: str = "",
-              previous: str | None = None, tweak: str | None = None, model: str | None = None) -> dict:
-    """The description to make an asked-for sound from. frames: {time, jpeg} around the
-    chosen instant. Returns {"prompt", "understood_as", "usage"}. Runs inside Modal."""
+              previous: list[str] | None = None, tweak: str | None = None, model: str | None = None) -> dict:
+    """Three ideas for a sound asked for in the editor. frames: {time, jpeg} around the
+    chosen instant. Returns {"ideas": [{name, prompt}], "understood_as", "usage"}. Runs
+    inside Modal."""
     import anthropic
 
     model = model or look_model()
@@ -774,13 +783,16 @@ def ask_added(frames: list[dict], words: str, seconds: float, summary: str = "",
         content.append({"type": "text", "text": f"{f['time']:.2f}s" + (" (the chosen instant)" if f.get("chosen") else "") + ":"})
         content.append(_image(f["jpeg"]))
     ask = f'They typed: "{words}". The sound will be about {seconds:g} seconds long.'
-    if previous and tweak:
-        ask += (f' An earlier version was made from this description: "{previous}". '
-                f'They want it changed like this: "{tweak}".')
+    if previous:
+        ask += " Already tried (give three different ones): " + "; ".join(f'"{p}"' for p in previous[:12]) + "."
+    if tweak:
+        ask += f' They want it changed like this: "{tweak}".'
     content.append({"type": "text", "text": ask})
     response = anthropic.Anthropic().messages.parse(
-        model=model, max_tokens=1000, system=ADDED_SYSTEM,
-        messages=[{"role": "user", "content": content}], output_format=WantedSound)
+        model=model, max_tokens=1500, system=ADDED_SYSTEM,
+        messages=[{"role": "user", "content": content}], output_format=SoundIdeas)
     made = response.parsed_output
-    prompt = " ".join((made.prompt if made else words).split())[:300] or words
-    return {"prompt": prompt, "understood_as": made.understood_as if made else "", "usage": _usage([response], model)}
+    ideas = [{"name": " ".join(i.name.split())[:40], "prompt": " ".join(i.prompt.split())[:300]}
+             for i in (made.ideas if made else []) if i.prompt.strip()][:3]
+    return {"ideas": ideas or [{"name": words[:40], "prompt": words}],
+            "understood_as": made.understood_as if made else "", "usage": _usage([response], model)}
